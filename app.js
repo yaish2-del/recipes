@@ -464,16 +464,17 @@ const PROXIES = [
   { u: u => 'https://r.jina.ai/' + u, headers: { 'X-Return-Format': 'html' } }
 ];
 async function fetchVia(url, asText){
-  let lastErr;
   if (url.startsWith(location.origin)) { const res = await fetch(url); return asText ? await res.text() : await res.blob(); }
-  for (const p of PROXIES) {
-    if (!asText && p.json) continue;
-    try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000); const res = await fetch(p.u(url), { signal: ctl.signal, headers: p.headers || {} }); clearTimeout(t); if (!res.ok) throw new Error(res.status);
-      if (!asText) return await res.blob();
+  const one = async p => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
+    try { const res = await fetch(p.u(url), { signal: ctl.signal, headers: p.headers || {} }); if (!res.ok) throw new Error(res.status);
+      if (!asText) { const b = await res.blob(); if (!b.size || !/^image\//.test(b.type)) throw new Error('not image'); return b; }
       let txt = await res.text(); if (p.json) { try { txt = JSON.parse(txt)[p.json] || ''; } catch(e) { txt = ''; } }
-      if (txt && txt.length > 500) return txt; throw new Error('empty'); } catch(e) { lastErr = e; }
-  }
-  throw lastErr || new Error('fetch failed');
+      if (txt && txt.length > 500 && !/just a moment|attention required|cf-browser-verification/i.test(txt.slice(0, 2000))) return txt; throw new Error('empty'); }
+    finally { clearTimeout(t); }
+  };
+  const list = PROXIES.filter(p => asText || !p.json);
+  return await Promise.any(list.map(one));
 }
 function mdImages(md){ const out = []; const rx = /!\[[^\]]*\]\((https?:[^)\s]+)/g; let m; while ((m = rx.exec(md))) { const u = m[1]; if (/\.svg|logo|icon|avatar|gravatar|placeholder|pinterest|button|badge|emoji|1x1|spacer/i.test(u)) continue; if (!out.includes(u)) out.push(u); } return out; }
 function isoDur(d){ if (!d || typeof d !== 'string') return ''; const m = d.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/i); if (!m) return ''; const h = (Number(m[1]||0)*24) + Number(m[2]||0), mi = Number(m[3]||0); return h ? h + ' h' + (mi ? ' ' + mi : '') : mi ? mi + ' min' : ''; }
@@ -792,6 +793,21 @@ function parseKeep(md){
   }
   return items;
 }
+const PICTO = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D\u2190-\u21FF\u2B00-\u2BFF\u25A0-\u25FF\uFFFD]/gu;
+function igTitle(cap){
+  const lines = cap.split(/\r?\n/).map(l => l.replace(PICTO, '').replace(/[#@][\w.]+/g, '').replace(/\b(recipe|full recipe|nutrition breakdown)\s*(is\s*)?(below|down below|in (the )?caption|in (my )?bio|link in bio)\b[^.]*/gi, '').replace(/\bcomment\s+["'“‘]?[\w ]+["'”’]?[^.]*/gi, '').replace(/\bfollow (me|us|for more)[^.]*/gi, '').replace(/\b(english|recipe) below\b/gi, '').replace(/\bday \d+(\/\d+)?\s*:?/gi, '').replace(/\bpov\s*:/gi, '').replace(/\s+/g, ' ').replace(/^[\s:.\-–—|,!]+|[\s:.\-–—|,!]+$/g, '').trim()).filter(Boolean);
+  const stopAt = lines.findIndex(l => /^ingredients?\b/i.test(l) || /^\d/.test(l));
+  const cands = lines.slice(0, stopAt > 0 ? Math.min(stopAt, 4) : 4);
+  const words = t => t.split(/\s+/).length;
+  const bad = t => /^(get the recipe|the recipe|recipe|recipes|ingredients?|method|instructions?|serves|makes|save this|new recipe|full recipe)\b/i.test(t) || /^[•\-*\d▢]/.test(t) || words(t) < 2 || /\b(views|subscribers|link in bio)\b/i.test(t);
+  const ok = cands.map(t => t.replace(/\(\s*\)/g, '').trim()).filter(t => !bad(t));
+  const short = ok.filter(t => words(t) <= 9);
+  let t = short.length ? short[0] : (ok[0] || cands[0] || '');
+  if (!t) return '';
+  if (words(t) > 9) { const cut = t.split(/[.!?:;|–—]\s/)[0]; t = words(cut) <= 12 ? cut : t.split(/\s+/).slice(0, 8).join(' ') + '…'; }
+  if (t === t.toUpperCase() && /[A-Z]/.test(t)) t = t.charAt(0) + t.slice(1).toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 function parseInstagram(json){
   const posts = Array.isArray(json) ? json : (json.saved_saved_media || json.saved_posts || []);
   const items = [];
@@ -800,8 +816,9 @@ function parseInstagram(json){
     let cap = unmojibake(d.Caption || '').replace(/\uFFFD/g, ''); const url = d.URL || '';
     if (!cap.trim()) continue;
     const q = (cap.match(/\d+\s*(g|ml|tsp|tbsp|cup|cups|grams?|oz|cloves?)\b/gi) || []).length;
-    const recipeish = q >= 3 || (/ingredients/i.test(cap) && q >= 1);
-    const title = cleanLine(cap.split(/\r?\n/)[0]).replace(/[#@][\w.]+/g, '').replace(/[🍜🍪🍰🍫🥞🥗🍛✨🌱🫐🥜🍦🧈🍡🍣🥟🇻🇳🇯🇵🌯🍽️🔥👇🏻✍️🫰🏻😋🤯💪❤️]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Instagram recipe';
+    const listLines = cap.split(/\r?\n/).filter(l => /^\s*[-•*]?\s*(\d|[¼½¾⅓⅔⅛])/.test(l)).length;
+    const recipeish = (q >= 3 && listLines >= 3) || (/^\s*ingredients?\b/im.test(cap) && listLines >= 3);
+    const title = igTitle(cap) || 'Instagram recipe';
     items.push({ title, link: url, text: cap, photos: [], kind: 'ig', on: recipeish, recipeish, when: p.timestamp });
   }
   items.sort((a, b) => (b.recipeish - a.recipeish) || (b.when - a.when));
@@ -838,7 +855,9 @@ async function runImport(){
       } else if (it.kind === 'typed' || it.kind === 'ig') {
         const parsed = parseText(it.text);
         r = newRecipe({ title: it.title, source: it.link, sourceName: it.kind === 'ig' ? 'Instagram' : '', ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, tags: it.kind === 'ig' ? ['Instagram'] : [] });
-        if (!parsed.title && it.kind === 'typed') r.title = it.title;
+        if (it.kind === 'ig' || !parsed.title) r.title = it.title;
+        if (it.kind === 'ig' && !parsed.ings.length) { r.tags.push('Needs details'); r.notes = it.text; }
+        if (it.kind === 'ig' && it.link) { try { const html = await Promise.race([fetchVia(it.link, true), new Promise((_, rej) => setTimeout(() => rej(new Error('t')), 6000))]); const m = html && html.match(/property="og:image"\s+content="([^"]+)"/) || html && html.match(/content="([^"]+)"\s+property="og:image"/); if (m) { r.photo = m[1].replace(/&amp;/g, '&'); r.photoSrc = r.photo; r.sourceImages = [r.photo]; } } catch(e) {} }
         it.status = 'ok';
       } else {
         r = newRecipe({ title: it.title, notes: it.text, tags: it.kind === 'screenshot' ? ['Needs details'] : [] });
@@ -853,7 +872,7 @@ async function runImport(){
     } catch(e) { it.status = 'fail'; I.log.push('✕ ' + it.title); }
     I.done++;
     render();
-    if (it.kind === 'link') await new Promise(res => setTimeout(res, 700));
+    if (it.kind === 'link') await new Promise(res => setTimeout(res, 250));
   }
   I.running = false; I.current = ''; render();
   toast('Import finished');
