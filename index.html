@@ -61,9 +61,9 @@
   .top h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
   .search{margin:10px 18px 0;display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:18px;padding:0 6px 0 12px;height:38px}
   .search input{flex:1;font-size:14px}
-  .car{display:flex;overflow-x:auto;scroll-snap-type:x proximity;padding:14px calc(50% - 92px) 6px;scrollbar-width:none;height:238px;align-items:center;touch-action:pan-x}
+  .car{display:flex;overflow-x:auto;padding:14px calc(50% - 92px) 6px;scrollbar-width:none;height:238px;align-items:center;touch-action:pan-x}
   .car::-webkit-scrollbar{display:none}
-  .slide{flex:0 0 184px;scroll-snap-align:center;position:relative;margin:0 -22px;will-change:transform;background:none;display:flex;flex-direction:column;align-items:center;padding:0}
+  .slide{flex:0 0 184px;position:relative;margin:0 -22px;will-change:transform;background:none;display:flex;flex-direction:column;align-items:center;padding:0}
   .slide .disc{width:156px;height:156px;border-radius:50%;overflow:hidden;border:5px solid var(--tb);background:var(--tb);flex:0 0 auto}
   .slide .disc img{width:100%;height:100%;object-fit:cover;display:block;transform-origin:center}
   .slide .disc .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--tb)}
@@ -223,6 +223,9 @@
   .ifilter span{flex:1}
   .ifilter button{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);color:var(--mute);font-size:12px}
   button.tile.badge{cursor:pointer}
+  .ing div.messy b{color:var(--coral)}
+  .ing div.messy span::after{content:' ?';color:var(--coral);font-weight:700}
+  .irow.messy .n{border-color:var(--coral)}
   .toast{position:fixed;left:50%;bottom:calc(80px + var(--safe-bottom));transform:translateX(-50%);background:var(--blue);color:var(--cream);font-size:13px;font-weight:600;padding:10px 16px;border-radius:14px;z-index:60;max-width:90%;text-align:center}
 </style>
 </head>
@@ -235,6 +238,6 @@
   <button data-go="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add</button>
   <button data-go="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </nav>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

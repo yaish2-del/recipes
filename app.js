@@ -138,6 +138,7 @@ function roundGrams(g, on){
 }
 function fmtGrams(g){ if (g >= 1000) return (Math.round(g/10)/100) + ' kg'; return fmtQty(g) + ' g'; }
 // Returns { text, note } for an ingredient line under current mode
+function messyIng(i){ const n = (i.name||''); return !i.group && (n.length > 46 || /\b(inches?|sliced into|placed in|to garnish|lengthways)\b/i.test(n) && n.length > 28); }
 function displayIng(ing, recipe, factor, yair, settings){
   const qty = ing.qty != null ? ing.qty * factor : null;
   const unit = ing.unit || '';
@@ -263,15 +264,18 @@ async function saveTimers(){ await store.set('timers', S.timers); }
 
 /* ---------- routing ---------- */
 function go(name, params, replace){
+  if (S.route.name === 'library') { const v0 = $('#view'); libState.saved = v0 ? v0.scrollTop : 0; }
   if (!replace) S.hist.push(S.route);
   S.route = Object.assign({ name }, params || {});
+  if (name === 'library' && libState.saved) libState.restore = libState.saved;
   render();
-  $('#view').scrollTop = 0;
+  if (name !== 'library') $('#view').scrollTop = 0;
 }
-function back(){ const prev = S.hist.pop(); S.route = prev || { name:'library' }; render(); }
+function back(){ const prev = S.hist.pop(); S.route = prev || { name:'library' }; if (S.route.name === 'library' && libState.saved) libState.restore = libState.saved; render(); }
 function render(){
   const v = $('#view');
   const r = S.route;
+  const keepScroll = r.name === 'library' ? (libState.restore != null ? libState.restore : v.scrollTop) : 0;
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.go === r.name || (b.dataset.go === 'library' && r.name === 'recipe')));
   if (r.name === 'library') renderLibrary(v);
   else if (r.name === 'recipe') renderRecipe(v, r.id);
@@ -281,14 +285,22 @@ function render(){
   else if (r.name === 'import') renderImport(v);
   else if (r.name === 'add') { S.route = S.hist.pop() || { name:'library' }; render(); openAddSheet(); }
   renderPin();
+  if (r.name === 'library' && keepScroll) {
+    libState.restore = null;
+    const set = () => { if (S.route.name === 'library' && Math.abs(v.scrollTop - keepScroll) > 2) v.scrollTop = keepScroll; };
+    set(); requestAnimationFrame(set); setTimeout(set, 60);
+  }
 }
 document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => { if (b.dataset.go === 'add') openAddSheet(); else go(b.dataset.go, null, true); }));
 
 /* ---------- library ---------- */
+const libState = { sig:'', scroll:0 };
+function wheelSig(list){ return S.settings.wheel + '|' + list.map(r => r.id + (r.photo ? '1' : '0') + r.icon).join(','); }
 function renderLibrary(v){
   const q = S.lib.q.trim().toLowerCase();
   let list = S.recipes.filter(r => !r.deleted);
-  if (S.lib.tab === 'My recipes') list = list.filter(isMine);
+  if (S.lib.tab === 'Needs a tidy') list = list.filter(r => (r.ings||[]).some(messyIng) || (r.tags||[]).includes('Needs details'));
+  else if (S.lib.tab === 'My recipes') list = list.filter(isMine);
   else if (S.lib.tab !== 'All') list = list.filter(r => (r.cats||[]).includes(S.lib.tab) || (r.tags||[]).includes(S.lib.tab));
   if (S.lib.icon) list = list.filter(r => r.icon === S.lib.icon);
   if (q) list = list.filter(r => [r.title, (r.ings||[]).map(i => i.name).join(' '), (r.cats||[]).join(' '), (r.tags||[]).join(' '), r.notes, sourceLabel(r)].join(' ').toLowerCase().includes(q));
@@ -297,12 +309,18 @@ function renderLibrary(v){
   if (S.settings.wheel === 'recent') wheel = wheel.slice().sort((a,b) => (b.updated||0) - (a.updated||0)).slice(0, 12);
   else if (S.settings.wheel === 'totry') wheel = wheel.filter(r => (r.tags||[]).includes('To try')).slice(0, 20);
   else wheel = sortRecipes(wheel);
-  const tabs = ['All', 'My recipes', ...CATEGORIES, 'To try', 'Favourite'];
+  const needTidy = S.recipes.filter(r => !r.deleted && ((r.ings||[]).some(messyIng) || ((r.tags||[]).includes('Needs details')))).length;
+  const tabs = ['All', 'My recipes', ...(needTidy ? ['Needs a tidy'] : []), ...CATEGORIES, 'To try', 'Favourite'];
   const sel = S.lib.sel;
+  const wsig = wheelSig(wheel);
+  const keepWheel = !q && wheel.length && libState.sig === wsig && v.querySelector('#car');
+  const carHTML = keepWheel ? v.querySelector('#car').outerHTML : '';
+  const carPos = keepWheel ? v.querySelector('#car').scrollLeft : null;
+  const prevScroll = v.scrollTop;
   v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:6px"><button class="pill ghost" id="selAll">All</button><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
     : '<div class="top"><h1>Recipes</h1><div style="display:flex;gap:8px"><button class="rbtn" id="btnSel" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></button><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div></div>')
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
-    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><span class="pill">' + esc(r.title) + '</span></button>').join('') + '</div>' : '')
+    + (keepWheel ? carHTML : !q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><span class="pill">' + esc(r.title) + '</span></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
     + (S.lib.icon ? '<div class="ifilter"><div class="tile" style="' + tileStyle(S.lib.icon) + '">' + svgIcon(S.lib.icon) + '</div><span>' + S.lib.icon.replace('icecream', 'ice cream') + ' recipes</span><button id="ifx">✕</button></div>' : '')
     + (list.length ? list.map(r => '<div class="rw"><div class="acts"><button class="act" data-edit="' + r.id + '">Edit</button><button class="act del" data-del="' + r.id + '">Delete</button></div><button class="row" data-id="' + r.id + '">' + (sel ? '<div class="cb' + (sel.includes(r.id) ? ' on' : '') + '">' + (sel.includes(r.id) ? '✓' : '') + '</div>' : '') + '<div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button></div>').join('')
@@ -319,7 +337,10 @@ function renderLibrary(v){
   v.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.lib.tab = b.dataset.tab; render(); });
   const ifx = v.querySelector('#ifx'); if (ifx) ifx.onclick = () => { S.lib.icon = null; render(); };
   v.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { if (b.classList.contains('row') && b.parentNode.classList.contains('open')) { b.parentNode.classList.remove('open'); b.style.transform = ''; return; } if (sel) { const i = sel.indexOf(b.dataset.id); if (i >= 0) sel.splice(i, 1); else sel.push(b.dataset.id); render(); return; } go('recipe', { id: b.dataset.id }); });
-  const car = v.querySelector('#car'); if (car) initWheel(car);
+  const car = v.querySelector('#car');
+  if (car) { if (keepWheel) { car.scrollLeft = carPos; } initWheel(car, keepWheel); }
+  libState.sig = (!q && wheel.length) ? wsig : '';
+  void prevScroll;
 }
 function initSwipe(wrap){
   const row = wrap.querySelector('.row'); let x0 = null, y0 = null, dx = 0, dragging = false, timer = null;
@@ -329,8 +350,10 @@ function initSwipe(wrap){
   row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end);
   row.addEventListener('click', e => { if (row.dataset.swiped) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 }
-function initWheel(car){
+function initWheel(car, already){
   const slides = [].slice.call(car.querySelectorAll('.slide'));
+  if (already && car.__wired) { car.__update(); return; }
+  car.__wired = true;
   function update(){
     const rect = car.getBoundingClientRect(), mid = rect.left + rect.width/2;
     slides.forEach(s => { const r = s.getBoundingClientRect(), d = (r.left + r.width/2 - mid)/r.width, a = Math.min(Math.abs(d), 2.2);
@@ -340,23 +363,37 @@ function initWheel(car){
       s.style.zIndex = String(100 - Math.round(a*40));
       s.classList.toggle('mid', a < 0.5); });
   }
+  car.__update = update;
   car.addEventListener('scroll', () => requestAnimationFrame(update), { passive:true });
   const step = () => (slides[1] ? slides[1].offsetLeft - slides[0].offsetLeft : 180);
   const centreOf = i => { const t = slides[Math.max(0, Math.min(slides.length - 1, i))]; return t.offsetLeft - (car.clientWidth - t.offsetWidth)/2; };
   const nearest = () => Math.round((car.scrollLeft - centreOf(0)) / step());
   let down = false, moved = 0, x0 = 0, lastX = 0, lastT = 0, vel = 0, settle = null;
-  car.addEventListener('pointerdown', e => { down = true; moved = 0; x0 = lastX = e.clientX; lastT = performance.now(); vel = 0; clearTimeout(settle); });
+  car.addEventListener('pointerdown', e => { down = true; moved = 0; x0 = lastX = e.clientX; lastT = performance.now(); vel = 0; clearTimeout(settle); cancelAnimationFrame(car.__anim); });
+  car.addEventListener('click', e => { if (car.__drag) { e.stopPropagation(); e.preventDefault(); } }, true);
   car.addEventListener('pointermove', e => { if (!down) return; moved = Math.abs(e.clientX - x0); const now = performance.now(), dt = now - lastT; if (dt > 10) { const v = (e.clientX - lastX)/dt; vel = vel*0.4 + v*0.6; lastX = e.clientX; lastT = now; } });
+  const glide = to => {
+    const from = car.scrollLeft, dist = to - from;
+    if (Math.abs(dist) < 1) return;
+    const dur = Math.min(900, 260 + Math.abs(dist) * 0.42), t0 = performance.now();
+    cancelAnimationFrame(car.__anim);
+    const tick = now => {
+      const k = Math.min(1, (now - t0)/dur), e = 1 - Math.pow(1 - k, 3);
+      car.scrollLeft = from + dist*e; update();
+      if (k < 1 && !down) car.__anim = requestAnimationFrame(tick);
+    };
+    car.__anim = requestAnimationFrame(tick);
+  };
   const release = () => {
     if (!down) return; down = false;
+    if (moved > 10) { car.__drag = true; setTimeout(() => { car.__drag = false; }, 120); }
     const idle = performance.now() - lastT > 120;
     const jump = idle || moved < 12 ? 0 : Math.sign(-vel) * Math.min(12, Math.round(Math.pow(Math.abs(vel) * 2.6, 1.35)));
     clearTimeout(settle);
-    settle = setTimeout(() => { const target = Math.max(0, Math.min(slides.length - 1, nearest() + jump)); car.scrollTo({ left: centreOf(target), behavior: 'smooth' }); }, jump ? 0 : 90);
+    settle = setTimeout(() => { const target = Math.max(0, Math.min(slides.length - 1, nearest() + jump)); glide(centreOf(target)); }, jump ? 0 : 70);
   };
   car.addEventListener('pointerup', release); car.addEventListener('pointercancel', release);
-  const first = slides[Math.min(1, slides.length - 1)];
-  if (first) car.scrollLeft = first.offsetLeft - (car.clientWidth - first.offsetWidth)/2;
+  if (!already) { const first = slides[Math.min(1, slides.length - 1)]; if (first) car.scrollLeft = centreOf(Math.min(1, slides.length - 1)); }
   update();
 }
 
@@ -368,7 +405,7 @@ function renderRecipe(v, id){
   if (view.id !== id) { view.id = id; view.yair = S.settings.openInYair; view.factor = 1; view.tab = 'ing'; view.done = {}; }
   const ic = ICONS[r.icon] || ICONS.rice;
   const serv = r.servings ? Math.round(r.servings * view.factor * 10)/10 : null;
-  const ings = (r.ings||[]).map(i => i.group ? { text: i.name, amt:'', group:true } : displayIng(i, r, view.factor, view.yair, S.settings));
+  const ings = (r.ings||[]).map(i => i.group ? { text: i.name, amt:'', group:true } : Object.assign(displayIng(i, r, view.factor, view.yair, S.settings), { messy: messyIng(i) }));
   const W = Math.max(320, v.clientWidth || window.innerWidth);
   const wrapPath = 'M0 0H' + W + 'V150C' + W + ' 150 ' + (W-28) + ' 152 ' + (W-36) + ' 176C' + (W-44) + ' 200 ' + (W-66) + ' 214 ' + (W-96) + ' 214C' + (W-128) + ' 214 ' + (W-156) + ' 208 ' + (W-178) + ' 208C' + (W-218) + ' 208 60 218 34 218C18 218 0 212 0 196Z';
   v.innerHTML = '<div class="rtop" style="' + tileStyle(r.icon) + '">'
@@ -382,7 +419,7 @@ function renderRecipe(v, id){
     + '<div class="seg"><button class="' + (view.yair ? '' : 'on') + '" data-mode="orig">Original</button><button class="' + (view.yair ? 'on' : '') + '" data-mode="yair">Yair mode</button></div>'
     + '<div class="seg" style="margin-top:8px"><button class="' + (view.tab === 'ing' ? 'on' : '') + '" data-tab="ing">Ingredients</button><button class="' + (view.tab === 'steps' ? 'on' : '') + '" data-tab="steps">Method</button><button class="' + (view.tab === 'notes' ? 'on' : '') + '" data-tab="notes">Notes</button></div>'
     + (view.tab === 'ing' ? '<div class="serv"><span>' + (r.servings ? 'Portions' : 'Batch') + (Math.abs(view.factor - 1) > 0.001 ? ' · ' + (Math.round(view.factor*100)/100) + '× the recipe' : '') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" class="stv">' + (Math.round(serv*100)/100) + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" class="stv">' + (Math.round(view.factor*100)/100) + '×</button><button id="sp">+</button>') + '</span></div>'
-        + '<div class="ing">' + ings.map(i => i.group ? '<div class="grp" style="border:0;padding:12px 0 2px">' + esc(i.text) + '</div>' : '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
+        + '<div class="ing">' + ings.map(i => i.group ? '<div class="grp" style="border:0;padding:12px 0 2px">' + esc(i.text) + '</div>' : '<div' + (i.messy ? ' class="messy"' : '') + '><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
     + (view.tab === 'steps' ? '<div style="margin-top:8px">' + (r.steps||[]).map((s, i) => { const d = view.done[i]; const dur = (r.stepTimers && r.stepTimers[i] != null) ? r.stepTimers[i] : detectDuration(s); const run = S.timers.find(t => t.recipeId === r.id && t.step === i); return '<div class="step' + (d ? ' done' : '') + '"><i data-done="' + i + '">' + (d ? '✓' : i+1) + '</i><div class="txt">' + esc(convertTempsInText(s, view.yair && S.settings.tempC)) + (run ? '<br><button class="chip run" data-stop="' + run.id + '">▮▮ <b>' + fmtDur((run.end - Date.now())/1000) + '</b> · stop</button>' : dur ? '<br><button class="chip" data-timer="' + i + '" data-secs="' + dur + '">▷ ' + fmtDurShort(dur) + '</button>' : '') + '</div></div>'; }).join('') + ((r.steps||[]).length ? '' : '<div class="empty">No method yet — tap Edit.</div>') + '</div>' : '')
     + (view.tab === 'notes' ? (r.sourceNotes ? '<div class="lbl">From the source</div><div class="notes">' + esc(r.sourceNotes) + '</div>' : '') + '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
         + (r.oven || r.tin ? '<div class="lbl">Oven and tin</div><div class="notes">' + esc([r.oven ? convertTempsInText(r.oven, view.yair && S.settings.tempC) : '', r.tin].filter(Boolean).join(' · ')) + '</div>' : '')
@@ -609,6 +646,7 @@ function renderEdit(v, id, draft){
     + '<div class="lbl">Categories</div><div class="chips" id="cats">' + CATEGORIES.map(c => '<button class="' + ((r.cats||[]).includes(c) ? 'on' : '') + '" data-cat="' + c + '">' + c + '</button>').join('') + '</div>'
     + '<div class="lbl">Cuisine and tags</div><div class="chips" id="tags">' + [...CUISINES, ...TAGS].map(c => '<button class="' + ((r.tags||[]).includes(c) ? 'on' : '') + '" data-tag="' + c + '">' + c + '</button>').join('') + '</div>'
     + '<div class="lbl">Yair mode treats this as</div><div class="seg"><button class="' + (isBakingRecipe(r) ? 'on' : '') + '" data-bake="1">Baking — grams</button><button class="' + (isBakingRecipe(r) ? '' : 'on') + '" data-bake="0">Savoury — as written</button></div>'
+    + (r.ings.filter(messyIng).length ? '<div class="lbl" style="color:var(--coral)">' + r.ings.filter(messyIng).length + ' ingredient line' + (r.ings.filter(messyIng).length === 1 ? '' : 's') + (r.ings.filter(messyIng).length === 1 ? ' looks' : ' look') + ' muddled — outlined below</div>' : '')
     + '<div class="lbl">Ingredients — quantity, unit, name</div><div id="ings"></div><div style="display:flex;gap:8px"><button class="ghostbtn" id="addIng">Add one</button><button class="ghostbtn" id="pasteIng">Paste a list</button></div>'
     + '<div class="lbl">Method — one step per box</div><div id="steps"></div><div style="display:flex;gap:8px"><button class="ghostbtn" id="addStep">Add one</button><button class="ghostbtn" id="pasteStep">Paste a method</button></div>'
     + '<div class="lbl">Time and servings</div><div class="irow"><input class="fld" id="fTime" style="flex:1" placeholder="1 h 10" value="' + esc(r.time) + '"><input class="fld" id="fServ" style="flex:1" placeholder="Serves" inputmode="decimal" value="' + (r.servings ?? '') + '"></div>'
@@ -623,7 +661,7 @@ function renderEdit(v, id, draft){
   // ingredients
   const ingsEl = v.querySelector('#ings');
   function drawIngs(){
-    ingsEl.innerHTML = r.ings.map((i, k) => '<div class="irow" data-k="' + k + '"><span class="h" draggable="true">⠿</span><input class="fld q" value="' + (i.qty == null ? '' : fmtQty(i.qty)) + '" placeholder="qty" inputmode="decimal" data-f="qty"><select class="fld u" data-f="unit">' + UNITS.map(u => '<option value="' + u + '"' + (i.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('') + '</select><input class="fld n" value="' + esc(i.name) + '" placeholder="ingredient" data-f="name"><button class="del" data-del="' + k + '">✕</button></div>').join('');
+    ingsEl.innerHTML = r.ings.map((i, k) => '<div class="irow' + (messyIng(i) ? ' messy' : '') + '" data-k="' + k + '"><span class="h" draggable="true">⠿</span><input class="fld q" value="' + (i.qty == null ? '' : fmtQty(i.qty)) + '" placeholder="qty" inputmode="decimal" data-f="qty"><select class="fld u" data-f="unit">' + UNITS.map(u => '<option value="' + u + '"' + (i.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('') + '</select><input class="fld n" value="' + esc(i.name) + '" placeholder="ingredient" data-f="name"><button class="del" data-del="' + k + '">✕</button></div>').join('');
     ingsEl.querySelectorAll('[data-f]').forEach(inp => inp.onchange = inp.oninput = () => { const k = Number(inp.closest('.irow').dataset.k); const f = inp.dataset.f; r.ings[k][f] = f === 'qty' ? parseQty(inp.value) : inp.value; });
     ingsEl.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { r.ings.splice(Number(b.dataset.del), 1); drawIngs(); });
     let dragFrom = null;
