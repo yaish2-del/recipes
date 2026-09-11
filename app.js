@@ -15,7 +15,9 @@ const ICONS = {
   soup:    { tb:'#84AFFB', ti:'#FF6648', svg:'<path d="M3 11h18a9 9 0 0 1-18 0z"/><path d="M8 19.5h8v2H8z"/><path class="ln" d="M8.5 7.5c0-1.6 1.6-1.6 1.6-3.2M12 7.5c0-1.6 1.6-1.6 1.6-3.2M15.5 7.5c0-1.6 1.6-1.6 1.6-3.2"/>', kw:['soup','broth','chowder','bisque','minestrone','laksa','miso'] },
   dumpling:{ tb:'#CADDFB', ti:'#0259DD', svg:'<path d="M2.5 15.5C2.5 9.5 6.6 6 12 6s9.5 3.5 9.5 9.5a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/><path class="cut" d="M6.5 14.5c.4-3 1-4.5 1.8-6M10 14c.2-3 .5-4.8 1-6.4M14 14c-.2-3-.5-4.8-1-6.4M17.5 14.5c-.4-3-1-4.5-1.8-6"/>', kw:['dumpling','gyoza','wonton','bao','momo','pierogi','ravioli','empanada','samosa','spring roll'] },
   tofu:    { tb:'#FFF6F1', ti:'#FF6648', svg:'<path d="M3.5 8.2L12 4l8.5 4.2v8L12 20.5 3.5 16.2z"/><path class="cut" d="M3.5 8.2L12 12.4l8.5-4.2M12 12.4v8"/>', kw:['tofu','tempeh','seitan','paneer','halloumi','טופו'] },
-  salad:   { tb:'#0259DD', ti:'#FF6648', svg:'<path d="M20.5 3.5C10.5 3.5 4 10 4 20.5c10.5 0 16.5-6.5 16.5-17z"/><path class="cut" d="M5 19.5L19.5 5"/>', kw:['salad','slaw','greens','tabbouleh','kale','veg','vegetable','roasted','broccoli','cauliflower','aubergine','eggplant','courgette','zucchini','סלט'] },
+  salad:   { tb:'#0259DD', ti:'#FF6648', svg:'<path d="M2.5 11.5h19a9.5 9.5 0 0 1-19 0z"/><path class="cut" d="M6 11.5c0-3.2 2.4-5.6 5.4-5.6M12.5 11.5c0-2.6 2.2-4.6 4.8-4.6"/><path d="M8.6 3.2c2 .3 3.2 1.8 3 3.8-2 .2-3.3-1.2-3-3.8z"/><path d="M5 20h14v1.6H5z"/>', kw:['salad','slaw','greens','tabbouleh','kale','coleslaw','סלט'] },
+  veg:     { tb:'#CADDFB', ti:'#0259DD', svg:'<path d="M12 7.5c3.6 0 6.5 2.9 6.5 6.5S15.6 21.5 12 21.5 5.5 17.6 5.5 14 8.4 7.5 12 7.5z"/><path class="cut" d="M9.5 13.5h5M12 11v5"/><path d="M11.2 6.6c-.4-2 .6-3.5 2.6-4.1.5 2.1-.4 3.6-2.6 4.1z"/>', kw:['broccoli','cauliflower','aubergine','eggplant','courgette','zucchini','mushroom','roasted veg','vegetable','carrot','beetroot','pumpkin','squash','sweet potato','potato','asparagus','cabbage','leek','pepper','corn','pea','bean','greens','tomato','cucumber','onion','garlic','sprout','artichoke','fennel','celeriac','kohlrabi'] },
+  dish:    { tb:'#F9CDBD', ti:'#0259DD', svg:'<circle cx="12" cy="12.5" r="8.5"/><circle class="dot" cx="12" cy="12.5" r="5.4"/>', kw:[] },
   drink:   { tb:'#FF6648', ti:'#0259DD', svg:'<path d="M5.2 3.5h13.6l-1.1 14.2a3.2 3.2 0 0 1-3.2 3H9.5a3.2 3.2 0 0 1-3.2-3z"/><path class="cut" d="M6.2 9.5h11.6"/>', kw:['smoothie','shake','latte','drink','juice','lemonade','cocktail','tea','coffee','milk','yogurt','yoghurt','kefir'] },
   sauce:   { tb:'#F9CDBD', ti:'#FF6648', svg:'<path d="M9 2.5h6v3.2l2.2 3.3V20a2 2 0 0 1-2 2H8.8a2 2 0 0 1-2-2V9l2.2-3.3z"/><path class="cut" d="M9 12.5h6M9 15.5h6"/>', kw:['sauce','dressing','pesto','hummus','dip','butter','spread','jam','chutney','salsa','tahini','mayo','aioli','marinade','relish','harissa','sambal','gravy','cream','frosting'] }
 };
@@ -28,11 +30,20 @@ const UNITS = ['', 'g','kg','ml','l','tsp','tbsp','cup','oz','lb','pinch','clove
 
 function svgIcon(name){ const ic = ICONS[name] || ICONS.rice; return '<svg viewBox="0 0 24 24">'+ic.svg+'</svg>'; }
 function tileStyle(name){ const ic = ICONS[name] || ICONS.rice; return '--tb:'+ic.tb+';--ti:'+ic.ti; }
-function guessIcon(title, cats){
-  const t = (title||'').toLowerCase();
-  let best = null, bestLen = 0;
-  for (const n of ICON_NAMES) for (const k of ICONS[n].kw) if (t.includes(k) && k.length > bestLen) { best = n; bestLen = k.length; }
+function guessIcon(title, cats, ings){
+  const t = ' ' + (title||'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ') + ' ';
+  let best = null, bestScore = 0;
+  for (const n of ICON_NAMES) for (const k of ICONS[n].kw) {
+    const idx = t.indexOf(' ' + k);
+    if (idx < 0) continue;
+    const after = t.charAt(idx + k.length + 1);
+    if (after && after !== ' ' && !/s|es/.test(t.slice(idx + k.length + 1, idx + k.length + 3).trim().charAt(0) || '')) continue;
+    let score = k.length * 2 + (idx < 3 ? 3 : 0) + (k.indexOf(' ') >= 0 ? 4 : 0);
+    if (score > bestScore) { bestScore = score; best = n; }
+  }
   if (best) return best;
+  const body = (ings||[]).map(i => i.name || '').join(' ').toLowerCase();
+  if (body) { for (const n of ['noodles','rice','tofu','dumpling','curry','soup','bread','cake']) for (const k of ICONS[n].kw) if (new RegExp('\\b' + k + '\\b').test(body)) return n; }
   cats = cats || [];
   if (cats.includes('Bread')) return 'bread';
   if (cats.includes('Bakes') || cats.includes('Desserts')) return 'cake';
@@ -41,9 +52,13 @@ function guessIcon(title, cats){
   if (cats.includes('Sauces')) return 'sauce';
   if (cats.includes('Drinks')) return 'drink';
   if (cats.includes('Breakfast')) return 'pancake';
-  return 'rice';
+  if (cats.includes('Salads')) return 'salad';
+  if (cats.includes('Sides')) return 'veg';
+  if (cats.includes('Mains')) return 'dish';
+  return 'dish';
 }
 
+window.__guess = guessIcon;
 /* ---------- storage ---------- */
 const DB_NAME = 'recipes-app', DB_VER = 1;
 let db;
@@ -161,7 +176,7 @@ function convertTempsInText(t, toC){
 /* ---------- text parser (rule based) ---------- */
 const UNIT_RX = /^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch(?:es)?|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s+(?:of\s+)?(.+)$/i;
 const UNIT_NORM = { pinches:'pinch', gram:'g', grams:'g', litre:'l', liter:'l', litres:'l', liters:'l', teaspoon:'tsp', teaspoons:'tsp', tablespoon:'tbsp', tablespoons:'tbsp', cups:'cup', ounce:'oz', ounces:'oz', lbs:'lb', pound:'lb', pounds:'lb', cloves:'clove', cans:'can', tin:'can', tins:'can', pieces:'piece', slices:'piece', slice:'piece', handful:'', bunch:'' };
-function cleanLine(l){ return l.replace(/\*{1,3}note\s*\d+\*{0,3}/gi,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\*\*|__/g,'').replace(/\s+/g,' ').trim(); }
+function cleanLine(l){ return String(l).replace(/\*{1,3}note\s*\d+\*{0,3}/gi,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\*\*|__/g,'').replace(/(\d)\s*(kg|g|ml|l|tsp|tbsp|cups?|oz|lbs?)([a-z])/gi,'$1 $2 $3').replace(/([a-z\)])([A-Z][a-z])/g,'$1 $2').replace(/\s+/g,' ').trim(); }
 function parseAmount(str){ const m = str.trim().match(/^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s*$/i); if (!m) return null; let unit = (m[2]||'').toLowerCase(); unit = UNIT_NORM[unit] !== undefined ? UNIT_NORM[unit] : unit; return { qty: parseQty(m[1]), unit }; }
 function parseIngLine(line){
   line = cleanLine(line).replace(/^[-•*·▢]+\s*/, '').replace(/^\d+[.)]\s+(?=\D)/, '').replace(/^(\d+)\s+and\s+(a\s+)?(half|quarter|\d+\/\d+|[¼½¾⅓⅔⅛])/i, (m, a, _b, f) => a + ' ' + (f === 'half' ? '1/2' : f === 'quarter' ? '1/4' : f)).trim();
@@ -235,6 +250,7 @@ function toast(msg, ms){ const t = document.createElement('div'); t.className = 
 function photoStyle(r){ const c = r.crop || { x:0, y:0, s:1 }; return 'transform:translate(' + c.x + '%,' + c.y + '%) scale(' + c.s + ')'; }
 function hostOf(url){ try { return new URL(url).hostname.replace(/^www\./,''); } catch(e){ return ''; } }
 function sourceLabel(r){ return r.sourceName || (r.source ? hostOf(r.source) : ''); }
+function isMine(r){ return !!r.mine || /\byair\b/i.test(r.title || '') || (!r.source && !/^https?:/.test(r.sourceName || '')); }
 function catLabel(r){ return (r.cats||[]).join(', '); }
 function sortRecipes(list){
   const s = S.settings.sort;
@@ -272,7 +288,8 @@ document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click'
 function renderLibrary(v){
   const q = S.lib.q.trim().toLowerCase();
   let list = S.recipes.filter(r => !r.deleted);
-  if (S.lib.tab !== 'All') list = list.filter(r => (r.cats||[]).includes(S.lib.tab) || (r.tags||[]).includes(S.lib.tab));
+  if (S.lib.tab === 'My recipes') list = list.filter(isMine);
+  else if (S.lib.tab !== 'All') list = list.filter(r => (r.cats||[]).includes(S.lib.tab) || (r.tags||[]).includes(S.lib.tab));
   if (S.lib.icon) list = list.filter(r => r.icon === S.lib.icon);
   if (q) list = list.filter(r => [r.title, (r.ings||[]).map(i => i.name).join(' '), (r.cats||[]).join(' '), (r.tags||[]).join(' '), r.notes, sourceLabel(r)].join(' ').toLowerCase().includes(q));
   list = sortRecipes(list);
@@ -280,9 +297,9 @@ function renderLibrary(v){
   if (S.settings.wheel === 'recent') wheel = wheel.slice().sort((a,b) => (b.updated||0) - (a.updated||0)).slice(0, 12);
   else if (S.settings.wheel === 'totry') wheel = wheel.filter(r => (r.tags||[]).includes('To try')).slice(0, 20);
   else wheel = sortRecipes(wheel);
-  const tabs = ['All', ...CATEGORIES, 'To try', 'Favourite'];
+  const tabs = ['All', 'My recipes', ...CATEGORIES, 'To try', 'Favourite'];
   const sel = S.lib.sel;
-  v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:8px"><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
+  v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:6px"><button class="pill ghost" id="selAll">All</button><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
     : '<div class="top"><h1>Recipes</h1><div style="display:flex;gap:8px"><button class="rbtn" id="btnSel" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></button><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div></div>')
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
     + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><h3>' + esc(r.title) + '</h3></button>').join('') + '</div>' : '')
@@ -292,6 +309,7 @@ function renderLibrary(v){
        : '<div class="empty"><b>' + (S.recipes.length ? 'Nothing here' : 'No recipes yet') + '</b>' + (S.recipes.length ? 'Try another tab or search.' : 'Tap Add to bring one in, or load the sample set from Settings.') + '</div>');
   const bs = v.querySelector('#btnSel'); if (bs) bs.onclick = () => { S.lib.sel = []; render(); };
   const sx = v.querySelector('#selX'); if (sx) sx.onclick = () => { S.lib.sel = null; render(); };
+  const sa = v.querySelector('#selAll'); if (sa) sa.onclick = () => { const ids = list.map(r => r.id); S.lib.sel = (sel.length === ids.length) ? [] : ids; render(); };
   const sd = v.querySelector('#selDel'); if (sd) sd.onclick = async () => { if (!sel.length) return; if (!confirm('Move ' + sel.length + ' recipe' + (sel.length === 1 ? '' : 's') + ' to the bin?')) return; for (const id of sel) { const r = S.recipes.find(x => x.id === id); if (r) { r.deleted = Date.now(); await saveRecipe(r); } } S.lib.sel = null; toast('Moved to bin'); render(); };
   v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => go('edit', { id: b.dataset.edit }));
   v.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { const r = S.recipes.find(x => x.id === b.dataset.del); if (!r) return; if (!confirm('Move "' + r.title + '" to the bin?')) return; r.deleted = Date.now(); await saveRecipe(r); toast('Moved to bin'); render(); });
@@ -315,9 +333,26 @@ function initWheel(car){
   const slides = [].slice.call(car.querySelectorAll('.slide'));
   function update(){
     const rect = car.getBoundingClientRect(), mid = rect.left + rect.width/2;
-    slides.forEach(s => { const r = s.getBoundingClientRect(), d = (r.left + r.width/2 - mid)/r.width, a = Math.min(Math.abs(d), 1); s.style.transform = 'translateX(' + (-d*32) + 'px) scale(' + (1 - 0.22*a) + ')'; s.style.opacity = 1 - 0.55*a; s.style.zIndex = String(100 - Math.round(a*40)); });
+    slides.forEach(s => { const r = s.getBoundingClientRect(), d = (r.left + r.width/2 - mid)/r.width, a = Math.min(Math.abs(d), 2.2);
+      const scale = a < 1 ? 1.12 - 0.34*a : Math.max(0.5, 0.78 - 0.14*(a - 1));
+      s.style.transform = 'translateX(' + (-d*30) + 'px) scale(' + scale + ')';
+      s.style.opacity = Math.max(0.25, 1 - 0.42*a);
+      s.style.zIndex = String(100 - Math.round(a*40)); });
   }
   car.addEventListener('scroll', () => requestAnimationFrame(update), { passive:true });
+  let t0 = 0, x0 = 0, lastX = 0, lastT = 0, vel = 0, down = false;
+  car.addEventListener('pointerdown', e => { down = true; t0 = lastT = performance.now(); x0 = lastX = e.clientX; vel = 0; });
+  car.addEventListener('pointermove', e => { if (!down) return; const now = performance.now(); const dt = now - lastT; if (dt > 8) { vel = (e.clientX - lastX)/dt; lastX = e.clientX; lastT = now; } });
+  const release = e => {
+    if (!down) return; down = false;
+    const dur = performance.now() - t0, dist = Math.abs((e.clientX || lastX) - x0);
+    if (dur < 350 && dist > 40 && Math.abs(vel) > 0.55) {
+      const w = slides[0] ? slides[0].offsetWidth + 8 : 180;
+      const extra = Math.min(4, Math.round(Math.abs(vel) * 1.6)) * w * (vel < 0 ? 1 : -1);
+      car.scrollBy({ left: extra, behavior: 'smooth' });
+    }
+  };
+  car.addEventListener('pointerup', release); car.addEventListener('pointercancel', release);
   const first = slides[Math.min(1, slides.length - 1)];
   if (first) car.scrollLeft = first.offsetLeft - (car.clientWidth - first.offsetWidth)/2;
   update();
@@ -336,7 +371,7 @@ function renderRecipe(v, id){
   const wrapPath = 'M0 0H' + W + 'V150C' + W + ' 150 ' + (W-28) + ' 152 ' + (W-36) + ' 176C' + (W-44) + ' 200 ' + (W-66) + ' 214 ' + (W-96) + ' 214C' + (W-128) + ' 214 ' + (W-156) + ' 208 ' + (W-178) + ' 208C' + (W-218) + ' 208 60 218 34 218C18 218 0 212 0 196Z';
   v.innerHTML = '<div class="rtop" style="' + tileStyle(r.icon) + '">'
     + '<svg class="wrap" viewBox="0 0 ' + W + ' 250" width="' + W + '" height="250" aria-hidden="true"><path fill="var(--tb)" d="' + wrapPath + '"/></svg>'
-    + '<button class="rbtn b1" id="bk">‹</button><button class="rbtn b2" id="fav">' + ((r.tags||[]).includes('Favourite') ? '♥' : '♡') + '</button><button class="edit" id="ed">Edit</button>'
+    + '<button class="rbtn b1" id="bk">‹</button><button class="rbtn b2" id="fav">' + ((r.tags||[]).includes('Favourite') ? '♥' : '♡') + '</button><button class="edit" id="ed">Edit</button><button class="cart" id="cart" aria-label="Add to shopping list"><svg viewBox="0 0 24 24"><path d="M2 4h1.8l2.3 10h9.6L18 7.2H5.6"/><circle cx="8" cy="18.5" r="1.4"/><circle cx="15.5" cy="18.5" r="1.4"/><path d="M19 2.5v5M16.5 5h5"/></svg></button>'
     + '<div class="photo">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div>'
     + '<button class="tile badge" id="iconGo" aria-label="All ' + r.icon + ' recipes">' + svgIcon(r.icon) + '</button></div>'
     + '<div class="r"><h1>' + esc(r.title) + '</h1>'
@@ -344,7 +379,7 @@ function renderRecipe(v, id){
     + (r.source ? '<a class="src" href="' + esc(r.source) + '" target="_blank" rel="noopener">' + esc(sourceLabel(r) || 'Source') + ' ↗</a>' : (r.sourceName ? '<div class="src" style="text-decoration:none">' + esc(r.sourceName) + '</div>' : ''))
     + '<div class="seg"><button class="' + (view.yair ? '' : 'on') + '" data-mode="orig">Original</button><button class="' + (view.yair ? 'on' : '') + '" data-mode="yair">Yair mode</button></div>'
     + '<div class="seg" style="margin-top:8px"><button class="' + (view.tab === 'ing' ? 'on' : '') + '" data-tab="ing">Ingredients</button><button class="' + (view.tab === 'steps' ? 'on' : '') + '" data-tab="steps">Method</button><button class="' + (view.tab === 'notes' ? 'on' : '') + '" data-tab="notes">Notes</button></div>'
-    + (view.tab === 'ing' ? '<div class="serv"><span>' + (r.servings ? 'Portions' : 'Batch') + (Math.abs(view.factor - 1) > 0.001 ? ' · ' + (Math.round(view.factor*100)/100) + '× the recipe' : '') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" class="stv">' + fmtQty(serv) + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" class="stv">' + fmtQty(view.factor) + '×</button><button id="sp">+</button>') + '</span></div>'
+    + (view.tab === 'ing' ? '<div class="serv"><span>' + (r.servings ? 'Portions' : 'Batch') + (Math.abs(view.factor - 1) > 0.001 ? ' · ' + (Math.round(view.factor*100)/100) + '× the recipe' : '') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" class="stv">' + (Math.round(serv*100)/100) + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" class="stv">' + (Math.round(view.factor*100)/100) + '×</button><button id="sp">+</button>') + '</span></div>'
         + '<div class="ing">' + ings.map(i => i.group ? '<div class="grp" style="border:0;padding:12px 0 2px">' + esc(i.text) + '</div>' : '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
     + (view.tab === 'steps' ? '<div style="margin-top:8px">' + (r.steps||[]).map((s, i) => { const d = view.done[i]; const dur = (r.stepTimers && r.stepTimers[i] != null) ? r.stepTimers[i] : detectDuration(s); const run = S.timers.find(t => t.recipeId === r.id && t.step === i); return '<div class="step' + (d ? ' done' : '') + '"><i data-done="' + i + '">' + (d ? '✓' : i+1) + '</i><div class="txt">' + esc(convertTempsInText(s, view.yair && S.settings.tempC)) + (run ? '<br><button class="chip run" data-stop="' + run.id + '">▮▮ <b>' + fmtDur((run.end - Date.now())/1000) + '</b> · stop</button>' : dur ? '<br><button class="chip" data-timer="' + i + '" data-secs="' + dur + '">▷ ' + fmtDurShort(dur) + '</button>' : '') + '</div></div>'; }).join('') + ((r.steps||[]).length ? '' : '<div class="empty">No method yet — tap Edit.</div>') + '</div>' : '')
     + (view.tab === 'notes' ? (r.sourceNotes ? '<div class="lbl">From the source</div><div class="notes">' + esc(r.sourceNotes) + '</div>' : '') + '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
@@ -356,6 +391,7 @@ function renderRecipe(v, id){
   v.querySelector('#bk').onclick = back;
   v.querySelector('#iconGo').onclick = () => { S.lib.icon = r.icon; S.lib.tab = 'All'; S.lib.q = ''; S.hist = []; go('library', null, true); };
   v.querySelector('#ed').onclick = () => go('edit', { id });
+  v.querySelector('#cart').onclick = async () => { S.shopping = S.shopping || { sel:{}, done:{}, stage:'pick' }; S.shopping.sel[r.id] = { mult: Math.round(view.factor*100)/100, yair: view.yair }; S.shopping.stage = 'pick'; await saveShopping(); toast('Added to the shopping list' + (Math.abs(view.factor - 1) > 0.001 ? ' at ' + (Math.round(view.factor*100)/100) + '×' : '')); };
   v.querySelector('#fav').onclick = async () => { r.tags = r.tags || []; const i = r.tags.indexOf('Favourite'); if (i >= 0) r.tags.splice(i, 1); else r.tags.push('Favourite'); await saveRecipe(r); render(); };
   v.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { view.yair = b.dataset.mode === 'yair'; render(); });
   v.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { view.tab = b.dataset.tab; render(); });
@@ -375,7 +411,7 @@ function nutritionBlock(r, factor){
   const cells = keys.filter(k => n[k[0]] != null).map(k => '<div><small>' + k[1] + '</small><b>' + Math.round(n[k[0]]) + (k[2] ? ' ' + k[2] : '') + '</b></div>').join('');
   const batch = r.servings ? Math.round(r.servings*factor*10)/10 : null;
   const tot = batch ? keys.filter(k => n[k[0]] != null).map(k => '<div><small>' + k[1] + '</small><b>' + Math.round(n[k[0]]*batch) + (k[2] ? ' ' + k[2] : '') + '</b></div>').join('') : '';
-  return '<div class="lbl" style="margin-top:18px">Per serving' + (n.per ? ' · ' + esc(n.per) : '') + '</div><div class="nut">' + cells + '</div>' + (tot ? '<div class="lbl">Whole batch · ' + fmtQty(batch) + ' servings' + (Math.abs(factor - 1) > 0.001 ? ' · ' + (Math.round(factor*100)/100) + '×' : '') + '</div><div class="nut">' + tot + '</div>' : '') + '<div style="font-size:11px;color:var(--mute);margin-top:6px">Source figures for the recipe as published; they scale with servings but don\'t recalculate if you change the ingredients.</div>';
+  return '<div class="lbl" style="margin-top:18px">Per serving' + (n.per ? ' · ' + esc(n.per) : '') + '</div><div class="nut">' + cells + '</div>' + (tot ? '<div class="lbl">Whole batch · ' + (Math.round(batch*100)/100) + ' servings' + (Math.abs(factor - 1) > 0.001 ? ' · ' + (Math.round(factor*100)/100) + '×' : '') + '</div><div class="nut">' + tot + '</div>' : '') + '<div style="font-size:11px;color:var(--mute);margin-top:6px">Source figures for the recipe as published; they scale with servings but don\'t recalculate if you change the ingredients.</div>';
 }
 
 /* ---------- timers ---------- */
@@ -501,7 +537,7 @@ async function importFromUrl(url, onStatus){
     if (notesEl) notes = notesEl.textContent.replace(/\s*\n\s*/g, '\n').replace(/^\s*notes?\s*/i, '').trim();
     if (!notes) { const heads = [].slice.call(doc.querySelectorAll('h2,h3,h4,p,div,span')).filter(h => /^\s*notes?\s*$/i.test(h.textContent) && h.children.length === 0); if (heads.length) { let n = heads[0].nextElementSibling; const parts = []; let guard = 0; while (n && guard++ < 6 && !/^H[1-4]$/.test(n.tagName) && !/nutrition|share/i.test(n.textContent.slice(0, 30))) { parts.push(n.textContent.trim()); n = n.nextElementSibling; } notes = parts.filter(Boolean).join('\n'); } }
     if (ld) {
-      const ings = (ld.recipeIngredient || ld.ingredients || []).map(x => parseIngLine(ldText(x).replace(/<[^>]+>/g, '')));
+      const ings = (ld.recipeIngredient || ld.ingredients || []).map(x => parseIngLine(cleanLine(ldText(x).replace(/<[^>]+>/g, ' '))));
       const steps = ldSteps(ld.recipeInstructions);
       const imgs = [...ldImage(ld.image), ogImg, ...bodyImgs].filter(Boolean);
       const uniq = imgs.filter((u, i) => imgs.indexOf(u) === i);
@@ -513,11 +549,13 @@ async function importFromUrl(url, onStatus){
       const title = (doc.querySelector('meta[property="og:title"]') || {}).content || doc.title || '';
       doc.querySelectorAll('nav, header, footer, script, style, noscript, .comments, #comments, .sidebar, aside').forEach(e => e.remove());
       const root = doc.querySelector('.wprm-recipe, .tasty-recipes, .mv-create-card, [class*="recipe-card"], article, main') || doc.body;
-      const text = root ? [].slice.call(root.querySelectorAll('h1,h2,h3,h4,li,p,div,span')).filter(e => e.children.length === 0 || /^(LI|P|H[1-4])$/.test(e.tagName)).map(e => e.textContent.trim()).filter(Boolean).join('\n') : '';
+      const nodeText = e => { let out = ''; e.childNodes.forEach(n => { out += (n.nodeType === 3 ? n.nodeValue : nodeText(n)) + ' '; }); return out.replace(/\s+/g, ' ').trim(); };
+      const text = root ? [].slice.call(root.querySelectorAll('h1,h2,h3,h4,li,p,div,span')).filter(e => e.children.length === 0 || /^(LI|P|H[1-4])$/.test(e.tagName)).map(nodeText).filter(Boolean).join('\n') : '';
       const parsed = parseText(text);
       if (parsed.ings.length || parsed.steps.length) draft = newRecipe({ title: cleanLine(title).replace(/\s+[-|–]\s+[^-|–]+$/, ''), source: url, sourceName: siteName || hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: ogImg, photoSrc: ogImg, sourceImages: [ogImg, ...bodyImgs].filter(Boolean).slice(0, 8) });
     }
   }
+  if (draft && !(draft.ings||[]).length) draft = null;
   if (!draft) {
     onStatus && onStatus('Trying a text reader…');
     try {
@@ -528,7 +566,7 @@ async function importFromUrl(url, onStatus){
       if (parsed.ings.length) draft = newRecipe({ title: parsed.title, source: url, sourceName: hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: imgs[0] || null, photoSrc: imgs[0] || null, sourceImages: imgs.slice(0, 8) });
     } catch(e) {}
   }
-  if (draft) { if (!draft.title) draft.title = hostOf(url); draft.icon = guessIcon(draft.title, draft.cats); onStatus && onStatus('Got it.'); }
+  if (draft) { if (!draft.title) draft.title = hostOf(url); draft.icon = guessIcon(draft.title, draft.cats, draft.ings); onStatus && onStatus('Got it.'); }
   return draft;
 }
 async function cachePhoto(r){
@@ -538,7 +576,7 @@ async function cachePhoto(r){
 function closeSheet(){ const d = $('#dim'), s = $('#sheet'); d && d.remove(); s && s.remove(); }
 function newRecipe(o){
   const r = Object.assign({ id: uid(), title:'', cats:[], tags:[], ings:[], steps:[], notes:'', source:'', sourceName:'', servings:null, time:'', oven:'', tin:'', rating:null, photo:null, crop:{ x:0, y:0, s:1 }, created: Date.now(), updated: Date.now() }, o);
-  r.icon = r.icon || guessIcon(r.title, r.cats);
+  r.icon = r.icon || guessIcon(r.title, r.cats, r.ings);
   return r;
 }
 
@@ -592,10 +630,10 @@ function renderEdit(v, id, draft){
   drawSteps();
   v.querySelector('#addStep').onclick = () => { r.steps.push(''); drawSteps(); const last = stepsEl.querySelector('.steprow:last-child textarea'); last && last.focus(); };
   // fields
-  const bind = (sel, key, tr) => { const el = v.querySelector(sel); el.oninput = () => { r[key] = tr ? tr(el.value) : el.value; if (key === 'title' && !r.iconManual) { r.icon = guessIcon(r.title, r.cats); v.querySelectorAll('[data-icon]').forEach(b => b.classList.toggle('sel', b.dataset.icon === r.icon)); } }; };
+  const bind = (sel, key, tr) => { const el = v.querySelector(sel); el.oninput = () => { r[key] = tr ? tr(el.value) : el.value; if (key === 'title' && !r.iconManual) { r.icon = guessIcon(r.title, r.cats, r.ings); v.querySelectorAll('[data-icon]').forEach(b => b.classList.toggle('sel', b.dataset.icon === r.icon)); } }; };
   bind('#fTitle','title'); bind('#fTime','time'); bind('#fServ','servings', x => x.trim() ? parseQty(x) : null); bind('#fOven','oven'); bind('#fTin','tin'); bind('#fSrc','source'); bind('#fSrcName','sourceName'); bind('#fNotes','notes');
   v.querySelectorAll('[data-icon]').forEach(b => b.onclick = () => { r.icon = b.dataset.icon; r.iconManual = true; v.querySelectorAll('[data-icon]').forEach(x => x.classList.toggle('sel', x === b)); });
-  v.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { const c = b.dataset.cat; const i = r.cats.indexOf(c); if (i >= 0) r.cats.splice(i,1); else r.cats.push(c); b.classList.toggle('on'); if (!r.iconManual) { r.icon = guessIcon(r.title, r.cats); v.querySelectorAll('[data-icon]').forEach(x => x.classList.toggle('sel', x.dataset.icon === r.icon)); } if (r.baking == null) v.querySelectorAll('[data-bake]').forEach(x => x.classList.toggle('on', (x.dataset.bake === '1') === isBakingRecipe(r))); });
+  v.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { const c = b.dataset.cat; const i = r.cats.indexOf(c); if (i >= 0) r.cats.splice(i,1); else r.cats.push(c); b.classList.toggle('on'); if (!r.iconManual) { r.icon = guessIcon(r.title, r.cats, r.ings); v.querySelectorAll('[data-icon]').forEach(x => x.classList.toggle('sel', x.dataset.icon === r.icon)); } if (r.baking == null) v.querySelectorAll('[data-bake]').forEach(x => x.classList.toggle('on', (x.dataset.bake === '1') === isBakingRecipe(r))); });
   v.querySelectorAll('[data-tag]').forEach(b => b.onclick = () => { const c = b.dataset.tag; const i = r.tags.indexOf(c); if (i >= 0) r.tags.splice(i,1); else r.tags.push(c); b.classList.toggle('on'); });
   v.querySelectorAll('[data-bake]').forEach(b => b.onclick = () => { r.baking = b.dataset.bake === '1'; v.querySelectorAll('[data-bake]').forEach(x => x.classList.toggle('on', x === b)); });
   v.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => { r.rating = r.rating === Number(b.dataset.rate) ? null : Number(b.dataset.rate); v.querySelectorAll('[data-rate]').forEach(x => x.classList.toggle('on', Number(x.dataset.rate) === r.rating)); });
@@ -615,7 +653,7 @@ function renderEdit(v, id, draft){
   v.querySelector('#save').onclick = async () => {
     r.title = r.title.trim(); if (!r.title) { toast('Give it a title first'); v.querySelector('#fTitle').focus(); return; }
     r.ings = r.ings.filter(i => (i.name||'').trim()); r.steps = r.steps.map(s => s.trim()).filter(Boolean);
-    if (!r.icon) r.icon = guessIcon(r.title, r.cats);
+    if (!r.icon) r.icon = guessIcon(r.title, r.cats, r.ings);
     await saveRecipe(r);
     toast('Saved');
     S.hist = S.hist.filter(h => h.name !== 'edit');
@@ -687,7 +725,14 @@ function renderShopping(v){
   S.shopping = S.shopping || { sel:{}, done:{}, stage:'pick' };
   const sel = S.shopping.sel;
   let pruned = false; for (const id of Object.keys(sel)) { const rr = S.recipes.find(x => x.id === id); if (!rr || rr.deleted) { delete sel[id]; pruned = true; } } if (pruned) saveShopping();
-  const recipes = sortRecipes(S.recipes.filter(r => !r.deleted && (r.ings||[]).length));
+  S.shop = S.shop || { tab:'All', q:'' };
+  let recipes = sortRecipes(S.recipes.filter(r => !r.deleted && (r.ings||[]).length));
+  const chosen = recipes.filter(r => sel[r.id]);
+  if (S.shop.tab === 'Chosen') recipes = chosen;
+  else if (S.shop.tab === 'My recipes') recipes = recipes.filter(isMine);
+  else if (S.shop.tab !== 'All') recipes = recipes.filter(r => (r.cats||[]).includes(S.shop.tab) || (r.tags||[]).includes(S.shop.tab));
+  const sq = S.shop.q.trim().toLowerCase();
+  if (sq) recipes = recipes.filter(r => (r.title + ' ' + (r.ings||[]).map(i => i.name).join(' ')).toLowerCase().includes(sq));
   if (S.shopping.stage === 'list') {
     const items = buildList();
     const aisles = ['Fresh','Chilled','Baking and dry','Tins and jars','Frozen','Other'].filter(a => items.some(i => i.aisle === a));
@@ -700,9 +745,15 @@ function renderShopping(v){
     v.querySelector('#copy').onclick = async () => { const txt = aisles.map(a => a + '\n' + items.filter(i => i.aisle === a).map(i => (i.done ? '☑ ' : '☐ ') + i.name + (i.amt ? ' — ' + i.amt : '')).join('\n')).join('\n\n'); try { await navigator.clipboard.writeText(txt); toast('Copied'); } catch(e) { toast('Could not copy'); } };
     return;
   }
-  v.innerHTML = '<div class="hd"><h1>Shopping</h1>' + (Object.keys(sel).length ? '<button class="pill ghost" id="none">Clear</button>' : '') + '</div><div class="p"><div class="lbl">Choose recipes — tap the amount to scale</div>'
+  const shopTabs = ['All', 'Chosen', 'My recipes', ...CATEGORIES];
+  v.innerHTML = '<div class="hd"><h1>Shopping</h1>' + (Object.keys(sel).length ? '<button class="pill ghost" id="none">Clear</button>' : '') + '</div>'
+    + '<div class="search" style="margin:0 18px 8px"><input id="sq" placeholder="Search recipes or ingredients" value="' + esc(S.shop.q) + '">' + (S.shop.q ? '<button class="rbtn" style="border:0" id="sqx">✕</button>' : '') + '</div>'
+    + '<div class="tabs">' + shopTabs.map(t => '<button class="' + (S.shop.tab === t ? 'on' : '') + '" data-stab="' + t + '">' + t + (t === 'Chosen' && chosen.length ? ' ' + chosen.length : '') + '</button>').join('') + '</div>'
+    + '<div class="p">'
     + (recipes.length ? recipes.map(r => { const c = sel[r.id]; return '<div class="pick"><button class="cb' + (c ? ' on' : '') + '" data-sel="' + r.id + '">' + (c ? '✓' : '') + '</button><div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><small>' + (c ? (c.yair ? 'Yair mode' : 'Original') + (r.servings ? ' · serves ' + Math.round(r.servings*c.mult*10)/10 : '') : (r.servings ? 'serves ' + r.servings : '')) + '</small></div>' + (c ? '<div class="mult"><button data-m="' + r.id + '" data-d="-1">−</button><button data-mi="' + r.id + '" style="font-size:12px;font-weight:700;min-width:34px;padding:4px 2px;border-radius:8px;border:1px solid var(--line)">' + c.mult + '×</button><button data-m="' + r.id + '" data-d="1">+</button></div>' : '') + '</div>'; }).join('') : '<div class="empty">No recipes with ingredients yet.</div>')
     + '</div><div class="foot"><button class="primary" id="build"' + (Object.keys(sel).length ? '' : ' disabled style="opacity:.5"') + '>Build list' + (Object.keys(sel).length ? ' · ' + Object.keys(sel).length : '') + '</button></div>';
+  const sqi = v.querySelector('#sq'); if (sqi) { sqi.oninput = () => { S.shop.q = sqi.value; const pos = sqi.selectionStart; render(); const n = $('#sq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }; const x = v.querySelector('#sqx'); if (x) x.onclick = () => { S.shop.q = ''; render(); }; }
+  v.querySelectorAll('[data-stab]').forEach(b => b.onclick = () => { S.shop.tab = b.dataset.stab; render(); });
   v.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { const id = b.dataset.sel; if (sel[id]) delete sel[id]; else sel[id] = { mult:1, yair: S.settings.openInYair }; saveShopping(); render(); });
   v.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { const c = sel[b.dataset.m]; c.mult = Math.max(0.5, Math.round((c.mult + Number(b.dataset.d)*0.5)*100)/100); saveShopping(); render(); });
   v.querySelectorAll('[data-mi]').forEach(b => b.onclick = () => { const c = sel[b.dataset.mi]; const val = prompt('Multiply this recipe by', c.mult); const n = parseQty(val); if (n && n > 0) { c.mult = Math.round(n*100)/100; saveShopping(); render(); } });
@@ -865,7 +916,7 @@ async function runImport(){
       }
       if (it.photos && it.photos.length) { r.photo = it.photos[0]; r.sourceImages = it.photos.slice(0, 8); r.photoSrc = null; }
       if (it.totry) { r.tags = r.tags || []; if (!r.tags.includes('To try')) r.tags.push('To try'); }
-      if (!r.icon || !r.iconManual) r.icon = guessIcon(r.title, r.cats);
+      if (!r.icon || !r.iconManual) r.icon = guessIcon(r.title, r.cats, r.ings);
       await saveRecipe(r);
       I.log.push((it.status === 'ok' ? '✓ ' : '· ') + r.title);
       if (r.photo && /^https?:/.test(r.photo)) cachePhoto(r);
