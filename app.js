@@ -786,6 +786,8 @@ function renderSettings(v){
     + '<div class="srow"><div>From Google Keep<small>The .md export of your Keep notes — links, typed recipes and screenshots</small></div><label class="pill ghost" style="cursor:pointer">Choose file<input type="file" id="impKeep" accept=".md,text/markdown,text/plain" style="display:none"></label></div>'
     + '<div class="srow"><div>From Instagram<small>saved_posts.json from your Instagram download</small></div><label class="pill ghost" style="cursor:pointer">Choose file<input type="file" id="impIg" accept=".json,application/json" style="display:none"></label></div>'
     + '<div class="sec">Data</div>'
+    + '<div class="srow"><div>Re-match icons<small>Re-runs the icon matcher over every recipe you have not set by hand</small></div><button class="pill ghost" id="reicon">Re-match</button></div>'
+    + '<div class="srow"><div>Re-fetch incomplete recipes<small>' + S.recipes.filter(r => !r.deleted && r.source && !(r.ings||[]).length).length + ' saved with a link but no ingredients</small></div><button class="pill ghost" id="refetch">Review</button></div>'
     + '<div class="srow"><div>Load sample recipes<small>A handful to try the app with</small></div><button class="pill ghost" id="sample">Load</button></div>'
     + '<div class="srow"><div>Storage<small id="quota">…</small></div><button class="pill ghost" id="persist">Protect</button></div>'
     + '<div style="height:20px"></div></div>';
@@ -795,6 +797,20 @@ function renderSettings(v){
   v.querySelector('#imp').onchange = e => importBackup(e.target.files[0]);
   v.querySelector('#impKeep').onchange = async e => { const f = e.target.files[0]; if (!f) return; const items = parseKeep(await f.text()); if (!items.length) { toast('No notes found in that file'); return; } S.imp = { kind:'keep', items, running:false, done:0, log:[] }; go('import'); };
   v.querySelector('#impIg').onchange = async e => { const f = e.target.files[0]; if (!f) return; let items = []; try { items = parseInstagram(JSON.parse(await f.text())); } catch(err) { toast('That file could not be read'); return; } if (!items.length) { toast('No recipe-like posts found'); return; } S.imp = { kind:'ig', items, running:false, done:0, log:[] }; go('import'); };
+  v.querySelector('#reicon').onclick = async () => {
+    const todo = S.recipes.filter(r => !r.deleted && !r.iconManual);
+    if (!todo.length) { toast('Nothing to re-match'); return; }
+    if (!confirm('Re-match icons for ' + todo.length + ' recipes? Icons you chose by hand are left alone.')) return;
+    let n = 0;
+    for (const r of todo) { const g = guessIcon(r.title, r.cats, r.ings); if (g !== r.icon) { r.icon = g; await saveRecipe(r); n++; } }
+    toast(n + ' icon' + (n === 1 ? '' : 's') + ' updated'); render();
+  };
+  v.querySelector('#refetch').onclick = () => {
+    const todo = S.recipes.filter(r => !r.deleted && r.source && !(r.ings||[]).length);
+    if (!todo.length) { toast('Nothing to re-fetch'); return; }
+    S.imp = { kind:'refetch', items: todo.map(r => ({ title: r.title, link: r.source, text:'', photos:[], kind:'link', on:true, id: r.id })), running:false, done:0, log:[] };
+    go('import');
+  };
   v.querySelector('#sample').onclick = async () => { if (!confirm('Reload the sample recipes? Existing samples are replaced.')) return; await purgeSamples(); await loadSamples(); toast('Sample recipes reloaded'); go('library', null, true); };
   const bo = v.querySelector('#binOpen'); if (bo) bo.onclick = () => { v.querySelector('#bin').innerHTML = bin.map(r => '<div class="srow"><div>' + esc(r.title) + '<small>deleted ' + new Date(r.deleted).toLocaleDateString() + '</small></div><button class="pill ghost" data-restore="' + r.id + '">Restore</button></div>').join(''); v.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { const r = S.recipes.find(x => x.id === b.dataset.restore); delete r.deleted; await saveRecipe(r); toast('Restored'); render(); }); };
   v.querySelector('#persist').onclick = async () => { if (navigator.storage && navigator.storage.persist) { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected from clean-up' : 'Android declined — install the app to home screen first'); } else toast('Not supported here'); };
@@ -879,7 +895,7 @@ function renderImport(v){
   const I = S.imp; if (!I) { go('settings', null, true); return; }
   const total = I.items.filter(i => i.on).length;
   const kindLabel = { link:'link', typed:'typed recipe', screenshot:'screenshot', note:'note only', ig:'caption' };
-  v.innerHTML = '<div class="hd"><button class="rbtn" id="bk">‹</button><h1>' + (I.kind === 'keep' ? 'Import from Keep' : 'Import from Instagram') + '</h1>' + (I.running ? '<button class="pill danger" id="stop">Stop</button>' : '<button class="pill" id="run"' + (total ? '' : ' disabled') + '>Import ' + total + '</button>') + '</div><div class="p">'
+  v.innerHTML = '<div class="hd"><button class="rbtn" id="bk">‹</button><h1>' + (I.kind === 'keep' ? 'Import from Keep' : I.kind === 'refetch' ? 'Re-fetch recipes' : 'Import from Instagram') + '</h1>' + (I.running ? '<button class="pill danger" id="stop">Stop</button>' : '<button class="pill" id="run"' + (total ? '' : ' disabled') + '>Import ' + total + '</button>') + '</div><div class="p">'
     + (I.running || I.done ? '<div class="prog"><div style="width:' + Math.round(100*I.done/Math.max(1,total)) + '%"></div></div><div class="lbl">' + I.done + ' of ' + total + (I.running ? ' · ' + esc(I.current || '') : ' · done') + '</div>' + (I.log.length ? '<div class="notes" style="font-size:12px;max-height:120px;overflow:auto">' + I.log.slice(-8).map(esc).join('<br>') + '</div>' : '') : '<div class="lbl">' + I.items.length + ' found · tap to untick anything you don\'t want. ' + (I.kind === 'keep' ? 'Links are fetched one by one; typed notes and screenshots are added as they are.' : 'Only captions that look like recipes are ticked. No photos come from Instagram.') + '</div>')
     + (!I.running ? '<div style="display:flex;gap:8px;margin:8px 0"><button class="pill ghost" id="all">All</button><button class="pill ghost" id="none">None</button></div>' : '')
     + I.items.map((it, k) => '<button class="pick' + (it.status ? ' ' + it.status : '') + '" data-k="' + k + '"><div class="cb' + (it.on ? ' on' : '') + '">' + (it.on ? '✓' : '') + '</div><div><h3>' + esc(it.title) + '</h3><small>' + (it.status === 'ok' ? 'imported' : it.status === 'fail' ? 'saved with link only — fetch failed' : kindLabel[it.kind]) + (it.link && it.kind === 'link' ? ' · ' + esc(hostOf(it.link)) : '') + (it.photos.length ? ' · ' + it.photos.length + ' image' + (it.photos.length > 1 ? 's' : '') : '') + '</small></div></button>').join('')
@@ -902,6 +918,22 @@ async function runImport(){
       if (it.kind === 'link') {
         try { r = await importFromUrl(it.link); } catch(e) { r = null; }
         if (r) { it.status = 'ok'; } else { it.status = 'fail'; r = newRecipe({ title: it.title, source: it.link, sourceName: hostOf(it.link), tags: ['Needs details'] }); }
+        if (it.id) {
+          const old = S.recipes.find(x => x.id === it.id);
+          if (old) {
+            if (!r.ings.length && !r.steps.length) { it.status = 'fail'; I.log.push('· ' + old.title + ' — still nothing'); I.done++; render(); continue; }
+            old.ings = r.ings; old.steps = r.steps; old.servings = old.servings || r.servings; old.time = old.time || r.time;
+            old.nutrition = old.nutrition || r.nutrition; old.sourceNotes = old.sourceNotes || r.sourceNotes;
+            if (!old.photo && r.photo) { old.photo = r.photo; old.photoSrc = r.photoSrc; old.sourceImages = r.sourceImages; }
+            if (r.title && /^(https?:|www\.)/.test(old.title)) old.title = r.title;
+            old.tags = (old.tags||[]).filter(t => t !== 'Needs details');
+            if (!old.iconManual) old.icon = guessIcon(old.title, old.cats, old.ings);
+            await saveRecipe(old);
+            I.log.push('✓ ' + old.title);
+            if (old.photo && /^https?:/.test(old.photo)) cachePhoto(old);
+            I.done++; render(); await new Promise(res => setTimeout(res, 250)); continue;
+          }
+        }
         if (it.text) { const parsed = parseText(it.text); if (parsed.ings.length && !(r.ings||[]).length) { r.ings = parsed.ings; r.steps = r.steps.length ? r.steps : parsed.steps; } r.notes = it.text; }
       } else if (it.kind === 'typed' || it.kind === 'ig') {
         const parsed = parseText(it.text);
