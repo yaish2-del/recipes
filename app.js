@@ -22,7 +22,7 @@ const ICONS = {
 const ICON_NAMES = Object.keys(ICONS);
 const CATEGORIES = ['Bread','Bakes','Desserts','Breakfast','Mains','Sides','Salads','Soups','Sauces','Spices','Snacks','Drinks'];
 const CUISINES = ['Asian','Italian','Middle Eastern','Indian','Mexican','Mediterranean'];
-const TAGS = ['Sweet','Savoury','Quick','Weeknight','No-bake','High-protein','Gluten-free','To try','Favourite','Instagram'];
+const TAGS = ['Sweet','Savoury','Quick','Weeknight','No-bake','High-protein','Gluten-free','To try','Favourite','Instagram','Needs details'];
 const BAKING_CATS = ['Bread','Bakes','Desserts'];
 const UNITS = ['', 'g','kg','ml','l','tsp','tbsp','cup','oz','lb','pinch','clove','can','piece'];
 
@@ -184,7 +184,7 @@ function parseText(text){
   const lines = raw.split('\n');
   const out = { title:'', ings:[], steps:[], notes:'', source:'' };
   const url = raw.match(/https?:\/\/\S+/); if (url) out.source = url[0];
-  const tm = raw.match(/^Title:\s*(.+)$/m); if (tm) out.title = cleanLine(tm[1]).replace(/\s*[-|–]\s*[^-|–]+$/, '');
+  const tm = raw.match(/^Title:\s*(.+)$/m); if (tm) out.title = cleanLine(tm[1]).replace(/\s+[-|–]\s+[^-|–]+$/, '');
   const norm = l => l.toLowerCase().replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,'').replace(/^[#*_\s>\-•·]+|[#*_:\s]+$/g,'').trim();
   const H_ING = /^(ingredients?|you will need|what you need)( \(.*\))?$/, H_STEP = /^(method|instructions?|directions?|steps?|preparation|how to make( it)?|procedure)$/, H_NOTE = /^(notes?|tips?|recipe notes|chef'?s? notes?)$/, H_END = /^(nutrition(al)? ?(info(rmation)?|facts)?|nutrition|you may also like|share( this)?|reviews?( & questions)?|comments?|did you make this recipe\??|more recipes|related( recipes)?|leave a (reply|review)|equipment|video|keyword|storage)$/;
   const hasIngHead = lines.some(l => H_ING.test(norm(l)));
@@ -262,6 +262,7 @@ function render(){
   else if (r.name === 'edit') renderEdit(v, r.id, r.draft);
   else if (r.name === 'shopping') renderShopping(v);
   else if (r.name === 'settings') renderSettings(v);
+  else if (r.name === 'import') renderImport(v);
   else if (r.name === 'add') { S.route = S.hist.pop() || { name:'library' }; render(); openAddSheet(); }
   renderPin();
 }
@@ -284,7 +285,7 @@ function renderLibrary(v){
   v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:8px"><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
     : '<div class="top"><h1>Recipes</h1><div style="display:flex;gap:8px"><button class="rbtn" id="btnSel" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></button><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div></div>')
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
-    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide' + (r.photo ? '' : ' noimg') + '" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.parentNode.classList.add(\'noimg\');this.style.display=\'none\'">' : '<div class="tile big" style="--tb:' + ICONS[r.icon].ti + ';--ti:' + ICONS[r.icon].tb + '">' + svgIcon(r.icon) + '</div>') + '<div class="cap"><h3>' + esc(r.title) + '</h3></div></button>').join('') + '</div>' : '')
+    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><h3>' + esc(r.title) + '</h3></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
     + (S.lib.icon ? '<div class="ifilter"><div class="tile" style="' + tileStyle(S.lib.icon) + '">' + svgIcon(S.lib.icon) + '</div><span>' + S.lib.icon.replace('icecream', 'ice cream') + ' recipes</span><button id="ifx">✕</button></div>' : '')
     + (list.length ? list.map(r => '<div class="rw"><div class="acts"><button class="act" data-edit="' + r.id + '">Edit</button><button class="act del" data-del="' + r.id + '">Delete</button></div><button class="row" data-id="' + r.id + '">' + (sel ? '<div class="cb' + (sel.includes(r.id) ? ' on' : '') + '">' + (sel.includes(r.id) ? '✓' : '') + '</div>' : '') + '<div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button></div>').join('')
@@ -506,14 +507,14 @@ async function importFromUrl(url, onStatus){
       const kw = (ldText(ld.keywords) + ' ' + ldText(ld.recipeCategory) + ' ' + ldText(ld.recipeCuisine)).toLowerCase();
       const cats = CATEGORIES.filter(c => kw.includes(c.toLowerCase().replace(/s$/, '')));
       const tags = CUISINES.filter(c => kw.includes(c.toLowerCase()));
-      draft = newRecipe({ title: cleanLine(ldText(ld.name)).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || (ld.author ? ldText(ld.author) : hostOf(url)), ings, steps, notes:'', sourceNotes: notes, servings: yieldNum(ld.recipeYield), time: isoDur(ld.totalTime) || [isoDur(ld.prepTime), isoDur(ld.cookTime)].filter(Boolean).join(' + '), nutrition: ldNutrition(ld.nutrition), photo: uniq[0] || null, photoSrc: uniq[0] || null, sourceImages: uniq.slice(0, 8), cats, tags });
+      draft = newRecipe({ title: cleanLine(ldText(ld.name)).replace(/\s+[-|–]\s+[^-|–]+$/, ''), source: url, sourceName: siteName || (ld.author ? ldText(ld.author) : hostOf(url)), ings, steps, notes:'', sourceNotes: notes, servings: yieldNum(ld.recipeYield), time: isoDur(ld.totalTime) || [isoDur(ld.prepTime), isoDur(ld.cookTime)].filter(Boolean).join(' + '), nutrition: ldNutrition(ld.nutrition), photo: uniq[0] || null, photoSrc: uniq[0] || null, sourceImages: uniq.slice(0, 8), cats, tags });
     } else {
       const title = (doc.querySelector('meta[property="og:title"]') || {}).content || doc.title || '';
       doc.querySelectorAll('nav, header, footer, script, style, noscript, .comments, #comments, .sidebar, aside').forEach(e => e.remove());
       const root = doc.querySelector('.wprm-recipe, .tasty-recipes, .mv-create-card, [class*="recipe-card"], article, main') || doc.body;
       const text = root ? [].slice.call(root.querySelectorAll('h1,h2,h3,h4,li,p,div,span')).filter(e => e.children.length === 0 || /^(LI|P|H[1-4])$/.test(e.tagName)).map(e => e.textContent.trim()).filter(Boolean).join('\n') : '';
       const parsed = parseText(text);
-      if (parsed.ings.length || parsed.steps.length) draft = newRecipe({ title: cleanLine(title).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: ogImg, photoSrc: ogImg, sourceImages: [ogImg, ...bodyImgs].filter(Boolean).slice(0, 8) });
+      if (parsed.ings.length || parsed.steps.length) draft = newRecipe({ title: cleanLine(title).replace(/\s+[-|–]\s+[^-|–]+$/, ''), source: url, sourceName: siteName || hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: ogImg, photoSrc: ogImg, sourceImages: [ogImg, ...bodyImgs].filter(Boolean).slice(0, 8) });
     }
   }
   if (!draft) {
@@ -729,6 +730,9 @@ function renderSettings(v){
     + '<div class="srow"><div>Restore or import<small>A backup file from this app</small></div><label class="pill ghost" style="cursor:pointer">Choose file<input type="file" id="imp" accept="application/json,.json" style="display:none"></label></div>'
     + '<div class="srow"><div>Bin<small>' + bin.length + ' recipe' + (bin.length === 1 ? '' : 's') + ' · kept 30 days</small></div>' + (bin.length ? '<button class="pill ghost" id="binOpen">Open</button>' : '') + '</div>'
     + '<div id="bin"></div>'
+    + '<div class="sec">Import</div>'
+    + '<div class="srow"><div>From Google Keep<small>The .md export of your Keep notes — links, typed recipes and screenshots</small></div><label class="pill ghost" style="cursor:pointer">Choose file<input type="file" id="impKeep" accept=".md,text/markdown,text/plain" style="display:none"></label></div>'
+    + '<div class="srow"><div>From Instagram<small>saved_posts.json from your Instagram download</small></div><label class="pill ghost" style="cursor:pointer">Choose file<input type="file" id="impIg" accept=".json,application/json" style="display:none"></label></div>'
     + '<div class="sec">Data</div>'
     + '<div class="srow"><div>Load sample recipes<small>A handful to try the app with</small></div><button class="pill ghost" id="sample">Load</button></div>'
     + '<div class="srow"><div>Storage<small id="quota">…</small></div><button class="pill ghost" id="persist">Protect</button></div>'
@@ -737,6 +741,8 @@ function renderSettings(v){
   v.querySelectorAll('[data-sw]').forEach(b => b.onclick = async () => { s[b.dataset.sw] = !s[b.dataset.sw]; await saveSettings(); render(); });
   v.querySelector('#bk').onclick = exportBackup;
   v.querySelector('#imp').onchange = e => importBackup(e.target.files[0]);
+  v.querySelector('#impKeep').onchange = async e => { const f = e.target.files[0]; if (!f) return; const items = parseKeep(await f.text()); if (!items.length) { toast('No notes found in that file'); return; } S.imp = { kind:'keep', items, running:false, done:0, log:[] }; go('import'); };
+  v.querySelector('#impIg').onchange = async e => { const f = e.target.files[0]; if (!f) return; let items = []; try { items = parseInstagram(JSON.parse(await f.text())); } catch(err) { toast('That file could not be read'); return; } if (!items.length) { toast('No recipe-like posts found'); return; } S.imp = { kind:'ig', items, running:false, done:0, log:[] }; go('import'); };
   v.querySelector('#sample').onclick = async () => { if (!confirm('Reload the sample recipes? Existing samples are replaced.')) return; await purgeSamples(); await loadSamples(); toast('Sample recipes reloaded'); go('library', null, true); };
   const bo = v.querySelector('#binOpen'); if (bo) bo.onclick = () => { v.querySelector('#bin').innerHTML = bin.map(r => '<div class="srow"><div>' + esc(r.title) + '<small>deleted ' + new Date(r.deleted).toLocaleDateString() + '</small></div><button class="pill ghost" data-restore="' + r.id + '">Restore</button></div>').join(''); v.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { const r = S.recipes.find(x => x.id === b.dataset.restore); delete r.deleted; await saveRecipe(r); toast('Restored'); render(); }); };
   v.querySelector('#persist').onclick = async () => { if (navigator.storage && navigator.storage.persist) { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected from clean-up' : 'Android declined — install the app to home screen first'); } else toast('Not supported here'); };
@@ -761,6 +767,96 @@ async function importBackup(file){
     toast(n + ' recipes ' + (mode === 'replace' ? 'restored' : 'imported'));
     go('library', null, true);
   } catch(e) { toast('That file could not be read'); }
+}
+
+/* ---------- bulk import: Keep and Instagram ---------- */
+function unmojibake(str){ try { if (/[\u00c2-\u00f4][\u0080-\u00bf]/.test(str)) return decodeURIComponent(escape(str)); } catch(e) {} return str; }
+function parseKeep(md){
+  const defs = {}; md.replace(/^\[(image\d+)\]:\s*<(data:image\/[^>]+)>/gm, (m, k, d) => { defs[k] = d; return ''; });
+  const blocks = md.split(/^# /m).slice(1);
+  const items = [];
+  for (const b of blocks) {
+    const lines = b.split(/\r?\n/);
+    const title = cleanLine(lines[0].replace(/\\([-#*])/g, '$1')).replace(/\s+[-|–]\s+[^-|–]+$/, '').trim();
+    const rest = lines.slice(1).join('\n').replace(/\\([-#*_])/g, '$1');
+    const link = (rest.match(/\((https?:\/\/[^)\s]+)\)/) || rest.match(/(https?:\/\/\S+)/) || [])[1] || '';
+    const imgs = []; rest.replace(/!\[\]\[(image\d+)\]/g, (m, k) => { if (defs[k]) imgs.push(defs[k]); return ''; });
+    const text = rest.replace(/\[https?:[^\]]*\]\([^)]*\)/g, '').replace(/!\[\]\[image\d+\]/g, '').replace(/https?:\/\/\S+/g, '').trim();
+    const lo = text.toLowerCase();
+    const typed = /\d+\s*(g|ml|tsp|tbsp|cup|cups|grams?|oz)\b/i.test(text) && text.split('\n').filter(Boolean).length >= 3;
+    const kind = link ? 'link' : (typed ? 'typed' : imgs.length ? 'screenshot' : 'note');
+    const ex = items.find(i => link && i.link === link);
+    if (ex) { if (text && !ex.text.includes(text)) ex.text += (ex.text ? '\n' : '') + text; ex.photos.push(...imgs); continue; }
+    if (!title) continue;
+    items.push({ title, link, text, photos: imgs, kind, on: kind !== 'note' || !!text, totry: /\btry\b/i.test(lo) && lo.length < 40, screenshotTitle: /^screenshot/i.test(title) });
+  }
+  return items;
+}
+function parseInstagram(json){
+  const posts = Array.isArray(json) ? json : (json.saved_saved_media || json.saved_posts || []);
+  const items = [];
+  for (const p of posts) {
+    const lv = p.label_values || []; const d = {}; lv.forEach(x => { if (x.label) d[x.label] = x.value || x.href || ''; });
+    let cap = unmojibake(d.Caption || '').replace(/\uFFFD/g, ''); const url = d.URL || '';
+    if (!cap.trim()) continue;
+    const q = (cap.match(/\d+\s*(g|ml|tsp|tbsp|cup|cups|grams?|oz|cloves?)\b/gi) || []).length;
+    const recipeish = q >= 3 || (/ingredients/i.test(cap) && q >= 1);
+    const title = cleanLine(cap.split(/\r?\n/)[0]).replace(/[#@][\w.]+/g, '').replace(/[🍜🍪🍰🍫🥞🥗🍛✨🌱🫐🥜🍦🧈🍡🍣🥟🇻🇳🇯🇵🌯🍽️🔥👇🏻✍️🫰🏻😋🤯💪❤️]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Instagram recipe';
+    items.push({ title, link: url, text: cap, photos: [], kind: 'ig', on: recipeish, recipeish, when: p.timestamp });
+  }
+  items.sort((a, b) => (b.recipeish - a.recipeish) || (b.when - a.when));
+  return items;
+}
+function renderImport(v){
+  const I = S.imp; if (!I) { go('settings', null, true); return; }
+  const total = I.items.filter(i => i.on).length;
+  const kindLabel = { link:'link', typed:'typed recipe', screenshot:'screenshot', note:'note only', ig:'caption' };
+  v.innerHTML = '<div class="hd"><button class="rbtn" id="bk">‹</button><h1>' + (I.kind === 'keep' ? 'Import from Keep' : 'Import from Instagram') + '</h1>' + (I.running ? '<button class="pill danger" id="stop">Stop</button>' : '<button class="pill" id="run"' + (total ? '' : ' disabled') + '>Import ' + total + '</button>') + '</div><div class="p">'
+    + (I.running || I.done ? '<div class="prog"><div style="width:' + Math.round(100*I.done/Math.max(1,total)) + '%"></div></div><div class="lbl">' + I.done + ' of ' + total + (I.running ? ' · ' + esc(I.current || '') : ' · done') + '</div>' + (I.log.length ? '<div class="notes" style="font-size:12px;max-height:120px;overflow:auto">' + I.log.slice(-8).map(esc).join('<br>') + '</div>' : '') : '<div class="lbl">' + I.items.length + ' found · tap to untick anything you don\'t want. ' + (I.kind === 'keep' ? 'Links are fetched one by one; typed notes and screenshots are added as they are.' : 'Only captions that look like recipes are ticked. No photos come from Instagram.') + '</div>')
+    + (!I.running ? '<div style="display:flex;gap:8px;margin:8px 0"><button class="pill ghost" id="all">All</button><button class="pill ghost" id="none">None</button></div>' : '')
+    + I.items.map((it, k) => '<button class="pick' + (it.status ? ' ' + it.status : '') + '" data-k="' + k + '"><div class="cb' + (it.on ? ' on' : '') + '">' + (it.on ? '✓' : '') + '</div><div><h3>' + esc(it.title) + '</h3><small>' + (it.status === 'ok' ? 'imported' : it.status === 'fail' ? 'saved with link only — fetch failed' : kindLabel[it.kind]) + (it.link && it.kind === 'link' ? ' · ' + esc(hostOf(it.link)) : '') + (it.photos.length ? ' · ' + it.photos.length + ' image' + (it.photos.length > 1 ? 's' : '') : '') + '</small></div></button>').join('')
+    + '<div style="height:20px"></div></div>';
+  v.querySelector('#bk').onclick = () => { if (I.running && !confirm('Stop the import? What has been imported so far stays.')) return; I.running = false; go('settings', null, true); };
+  v.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { if (I.running) return; const it = I.items[Number(b.dataset.k)]; if (it.status === 'ok') return; it.on = !it.on; render(); });
+  const all = v.querySelector('#all'); if (all) { all.onclick = () => { I.items.forEach(i => { if (i.status !== 'ok') i.on = true; }); render(); }; v.querySelector('#none').onclick = () => { I.items.forEach(i => i.on = false); render(); }; }
+  const run = v.querySelector('#run'); if (run) run.onclick = () => runImport();
+  const stop = v.querySelector('#stop'); if (stop) stop.onclick = () => { I.running = false; render(); };
+}
+async function runImport(){
+  const I = S.imp; I.running = true; I.done = 0; I.log = [];
+  keepAwake();
+  for (const it of I.items) {
+    if (!I.running) break;
+    if (!it.on || it.status === 'ok') continue;
+    I.current = it.title; render();
+    let r = null;
+    try {
+      if (it.kind === 'link') {
+        try { r = await importFromUrl(it.link); } catch(e) { r = null; }
+        if (r) { it.status = 'ok'; } else { it.status = 'fail'; r = newRecipe({ title: it.title, source: it.link, sourceName: hostOf(it.link), tags: ['Needs details'] }); }
+        if (it.text) { const parsed = parseText(it.text); if (parsed.ings.length && !(r.ings||[]).length) { r.ings = parsed.ings; r.steps = r.steps.length ? r.steps : parsed.steps; } r.notes = it.text; }
+      } else if (it.kind === 'typed' || it.kind === 'ig') {
+        const parsed = parseText(it.text);
+        r = newRecipe({ title: it.title, source: it.link, sourceName: it.kind === 'ig' ? 'Instagram' : '', ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, tags: it.kind === 'ig' ? ['Instagram'] : [] });
+        if (!parsed.title && it.kind === 'typed') r.title = it.title;
+        it.status = 'ok';
+      } else {
+        r = newRecipe({ title: it.title, notes: it.text, tags: it.kind === 'screenshot' ? ['Needs details'] : [] });
+        it.status = 'ok';
+      }
+      if (it.photos && it.photos.length) { r.photo = it.photos[0]; r.sourceImages = it.photos.slice(0, 8); r.photoSrc = null; }
+      if (it.totry) { r.tags = r.tags || []; if (!r.tags.includes('To try')) r.tags.push('To try'); }
+      if (!r.icon || !r.iconManual) r.icon = guessIcon(r.title, r.cats);
+      await saveRecipe(r);
+      I.log.push((it.status === 'ok' ? '✓ ' : '· ') + r.title);
+      if (r.photo && /^https?:/.test(r.photo)) cachePhoto(r);
+    } catch(e) { it.status = 'fail'; I.log.push('✕ ' + it.title); }
+    I.done++;
+    render();
+    if (it.kind === 'link') await new Promise(res => setTimeout(res, 700));
+  }
+  I.running = false; I.current = ''; render();
+  toast('Import finished');
 }
 
 /* ---------- samples ---------- */
