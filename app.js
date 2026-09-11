@@ -20,9 +20,9 @@ const ICONS = {
   sauce:   { tb:'#F9CDBD', ti:'#FF6648', svg:'<path d="M9 2.5h6v3.2l2.2 3.3V20a2 2 0 0 1-2 2H8.8a2 2 0 0 1-2-2V9l2.2-3.3z"/><path class="cut" d="M9 12.5h6M9 15.5h6"/>', kw:['sauce','dressing','pesto','hummus','dip','butter','spread','jam','chutney','salsa','tahini','mayo','aioli','marinade','relish','harissa','sambal','gravy','cream','frosting'] }
 };
 const ICON_NAMES = Object.keys(ICONS);
-const CATEGORIES = ['Bread','Bakes','Desserts','Breakfast','Mains','Sides','Salads','Soups','Sauces','Snacks','Drinks'];
+const CATEGORIES = ['Bread','Bakes','Desserts','Breakfast','Mains','Sides','Salads','Soups','Sauces','Spices','Snacks','Drinks'];
 const CUISINES = ['Asian','Italian','Middle Eastern','Indian','Mexican','Mediterranean'];
-const TAGS = ['Sweet','Savoury','Quick','Weeknight','No-bake','High-protein','Gluten-free','To try','Favourite'];
+const TAGS = ['Sweet','Savoury','Quick','Weeknight','No-bake','High-protein','Gluten-free','To try','Favourite','Instagram'];
 const BAKING_CATS = ['Bread','Bakes','Desserts'];
 const UNITS = ['', 'g','kg','ml','l','tsp','tbsp','cup','oz','lb','pinch','clove','can','piece'];
 
@@ -105,7 +105,7 @@ function parseQty(s){
   if (!s) return null;
   const map = { '¼':.25,'½':.5,'¾':.75,'⅓':1/3,'⅔':2/3,'⅛':.125 };
   let total = 0, found = false;
-  s = s.replace(/[¼½¾⅓⅔⅛]/g, m => ' ' + map[m] + ' ');
+  s = s.replace(/[¼½¾⅓⅔⅛]/g, m => ' ' + map[m] + ' ').replace(/\s+and\s+/g, ' ');
   s = s.replace(/(\d+)\s*[-–]\s*\d+/, '$1');
   for (const p of s.split(/\s+/)) {
     if (!p) continue;
@@ -159,12 +159,12 @@ function convertTempsInText(t, toC){
 }
 
 /* ---------- text parser (rule based) ---------- */
-const UNIT_RX = /^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s+(?:of\s+)?(.+)$/i;
-const UNIT_NORM = { gram:'g', grams:'g', litre:'l', liter:'l', litres:'l', liters:'l', teaspoon:'tsp', teaspoons:'tsp', tablespoon:'tbsp', tablespoons:'tbsp', cups:'cup', ounce:'oz', ounces:'oz', lbs:'lb', pound:'lb', pounds:'lb', cloves:'clove', cans:'can', tin:'can', tins:'can', pieces:'piece', slices:'piece', slice:'piece', handful:'', bunch:'' };
+const UNIT_RX = /^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch(?:es)?|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s+(?:of\s+)?(.+)$/i;
+const UNIT_NORM = { pinches:'pinch', gram:'g', grams:'g', litre:'l', liter:'l', litres:'l', liters:'l', teaspoon:'tsp', teaspoons:'tsp', tablespoon:'tbsp', tablespoons:'tbsp', cups:'cup', ounce:'oz', ounces:'oz', lbs:'lb', pound:'lb', pounds:'lb', cloves:'clove', cans:'can', tin:'can', tins:'can', pieces:'piece', slices:'piece', slice:'piece', handful:'', bunch:'' };
 function cleanLine(l){ return l.replace(/\*{1,3}note\s*\d+\*{0,3}/gi,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\*\*|__/g,'').replace(/\s+/g,' ').trim(); }
 function parseAmount(str){ const m = str.trim().match(/^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s*$/i); if (!m) return null; let unit = (m[2]||'').toLowerCase(); unit = UNIT_NORM[unit] !== undefined ? UNIT_NORM[unit] : unit; return { qty: parseQty(m[1]), unit }; }
 function parseIngLine(line){
-  line = cleanLine(line).replace(/^[-•*·▢]+\s*/, '').replace(/^\d+[.)]\s+(?=\D)/, '').trim();
+  line = cleanLine(line).replace(/^[-•*·▢]+\s*/, '').replace(/^\d+[.)]\s+(?=\D)/, '').replace(/^(\d+)\s+and\s+(a\s+)?(half|quarter|\d+\/\d+|[¼½¾⅓⅔⅛])/i, (m, a, _b, f) => a + ' ' + (f === 'half' ? '1/2' : f === 'quarter' ? '1/4' : f)).trim();
   let alt = null;
   // "400 g (14 oz) tofu" or "220 g (1 cup) sugar" → keep first, remember the bracketed one
   line = line.replace(/^([^()]*?\d[^()]*?)\s*\(([^()]*?)\)/, (m0, a, b) => { const pa = parseAmount(b); if (pa && pa.qty != null) { alt = pa; return a + ' '; } return m0; });
@@ -203,6 +203,10 @@ function parseText(text){
     if (mode === 'notes') { const t = cleanLine(l.replace(/^[-•*]\s*/, '')); if (t) out.notes += (out.notes ? '\n' : '') + t; continue; }
     if (mode === 'steps') { const t = cleanLine(l.replace(/^(\d+[.)]|step\s*\d+[:.]?|[-•*])\s*/i, '')); if (t && t.length > 2) out.steps.push(t); continue; }
     if (/^#{1,6}\s/.test(l) || /^\*\*[^*]+\*\*:?$/.test(l)) { const t = cleanLine(l.replace(/^#+\s*/, '')).replace(/:$/, ''); if (mode === 'ing' && t.length < 40) out.ings.push({ qty:null, unit:'', name:t, group:true }); continue; }
+    if (/^#\w/.test(l) && !/\s/.test(l.replace(/#\w+/g,'').trim())) continue;
+    if (/^\*+\s*\D/.test(l) && /website|link in (my )?bio|full (method|recipe)|comment ["“]/i.test(l)) { out.notes += (out.notes ? '\n' : '') + cleanLine(l.replace(/^\*+\s*/, '')); continue; }
+    const IMP = /^(sift|put|mix|roll|place|dust|freeze|bake|add|stir|whisk|heat|cook|pour|blend|combine|preheat|chill|serve|fold|cut|slice|transfer|let|allow|remove|cool|drain|rinse|toast|fry|saut[eé]|simmer|boil|bring|season|taste|top|garnish|spread|press|shape|form|scoop|line|grease|melt|beat|cream|knead|rest|proof|prove|cover|refrigerate|store|enjoy|start|begin|meanwhile|once|then|now|while|when|in a|into a|using)\b/i;
+    if (mode === 'ing' && !seenIng && !/^[-•*]?\s*(\d|[¼½¾⅓⅔⅛])/.test(l) && IMP.test(l)) { const t = cleanLine(l.replace(/^[-•*]\s*/, '')); if (t) out.steps.push(t); mode = 'steps'; continue; }
     const words = l.split(/\s+/).length;
     const looksIng = /^[-•*]?\s*(\d|[¼½¾⅓⅔⅛])/.test(l) || (mode === 'ing' && words <= 10) || (mode === 'auto' && words <= 5);
     if (mode === 'ing' || (mode === 'auto' && looksIng)) { const p = parseIngLine(l); if (p.name && p.name.length < 120) out.ings.push(p); if (mode === 'auto') mode = 'ing'; }
@@ -728,7 +732,7 @@ function renderSettings(v){
   v.querySelectorAll('[data-sw]').forEach(b => b.onclick = async () => { s[b.dataset.sw] = !s[b.dataset.sw]; await saveSettings(); render(); });
   v.querySelector('#bk').onclick = exportBackup;
   v.querySelector('#imp').onchange = e => importBackup(e.target.files[0]);
-  v.querySelector('#sample').onclick = async () => { if (!confirm('Add the sample recipes to your library?')) return; await loadSamples(); toast('Sample recipes added'); go('library', null, true); };
+  v.querySelector('#sample').onclick = async () => { if (!confirm('Reload the sample recipes? Existing samples are replaced.')) return; await purgeSamples(); await loadSamples(); toast('Sample recipes reloaded'); go('library', null, true); };
   const bo = v.querySelector('#binOpen'); if (bo) bo.onclick = () => { v.querySelector('#bin').innerHTML = bin.map(r => '<div class="srow"><div>' + esc(r.title) + '<small>deleted ' + new Date(r.deleted).toLocaleDateString() + '</small></div><button class="pill ghost" data-restore="' + r.id + '">Restore</button></div>').join(''); v.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { const r = S.recipes.find(x => x.id === b.dataset.restore); delete r.deleted; await saveRecipe(r); toast('Restored'); render(); }); };
   v.querySelector('#persist').onclick = async () => { if (navigator.storage && navigator.storage.persist) { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected from clean-up' : 'Android declined — install the app to home screen first'); } else toast('Not supported here'); };
   if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(async e => { const q = v.querySelector('#quota'); if (!q) return; const p = navigator.storage.persisted ? await navigator.storage.persisted() : false; q.textContent = (Math.round((e.usage||0)/1e5)/10) + ' MB used · ' + (p ? 'protected' : 'not yet protected'); });
@@ -755,9 +759,13 @@ async function importBackup(file){
 }
 
 /* ---------- samples ---------- */
+const OLD_SAMPLE_TITLES = ['Big bubble no-knead focaccia','Vegan burnt Basque cheesecake',"Xi'an biang biang noodles","Xi'an biang biang noodles — my version",'Mango banana ice cream','Pumpkin seed butter','Marry me tofu','Eggless pistachio cookies','No knead focaccia','Chilli garlic soy mince udon','5 simple ingredient chocolate truffle balls'];
+async function purgeSamples(){
+  for (const r of S.recipes.slice()) { if (r.sample || OLD_SAMPLE_TITLES.some(t => t.toLowerCase() === (r.title||'').toLowerCase())) { await store.delRecipe(r.id); S.recipes = S.recipes.filter(x => x.id !== r.id); } }
+}
 async function loadSamples(){
   const now = Date.now();
-  const mk = (o, i) => newRecipe(Object.assign({ created: now - i*60000, updated: now - i*60000 }, o));
+  const mk = (o, i) => newRecipe(Object.assign({ created: now - i*60000, updated: now - i*60000, sample:true }, o));
   const list = [
     mk({ title:'Vegan burnt Basque cheesecake', cats:['Desserts','Bakes'], tags:['Sweet'], source:'https://addictedtodates.com/vegan-basque-cheesecake/', sourceName:'Addicted to Dates', servings:12, time:'9 h incl. chilling', oven:'200 °C fan', tin:'19–20 cm springform', rating:9,
       photo:'https://addictedtodates.com/wp-content/uploads/2025/01/vegan-burnt-basque-cheesecake.jpg', photoSrc:'https://addictedtodates.com/wp-content/uploads/2025/01/vegan-burnt-basque-cheesecake.jpg',
@@ -773,18 +781,20 @@ async function loadSamples(){
       steps:['Combine ground flax with soy milk in a large mixing bowl and let it stand until thickened, about 20 minutes.','Gently melt the vegan butter, then let it cool completely.','Once the flax has activated and the butter is cool, add both sugars to the flax mixture.','Using an electric whisk, whip the flax and sugars for about 3 minutes, until thickened and bubbly.','Pour in the cooled butter, pistachio butter and vanilla. Stir gently to combine.','Combine flour, salt and both raising agents in a separate bowl and fold into the wet mixture in three batches.','Fold in three quarters of the chopped pistachios and chocolate chunks; keep the rest for decoration.','Shape into balls with an ice-cream scoop (a ¼ cup scoop makes 10). Top with a chunk of chocolate and pistachios.','Chill the shaped cookies overnight in the fridge, or freeze for 1 hour.','Just before baking, make a small hole in each cookie and fill it with pistachio butter.','Preheat the oven to 180 °C. Bake for about 6 minutes, bang the tray on the counter a few times, rotate, and bake another 5–7 minutes depending on size.','Out of the oven, bang the tray again or nudge the edges in with a cookie ring if they spread too much.','Let the cookies set for 10 minutes, then cool completely on a rack.','Store airtight for at least a week, or freeze before or after baking.'],
       sourceNotes:'A dark baking tray bakes the cookies faster.\nPistachio butter: toast 250 g shelled pistachios at 180 °C for 8–10 minutes, cool fully, then process to a butter; add a teaspoon of neutral oil if it looks dry.',
       nutrition:{ calories:306, sugars:21, fat:16, saturates:8, protein:4, carbs:37, per:'1 of 12 cookies' }, notes:'' }, 1),
-    mk({ title:"Xi'an biang biang noodles — my version", cats:['Mains'], tags:['Asian','Savoury'], source:'https://redhousespice.com/biang-biang-noodles/', sourceName:'Red House Spice', servings:2, time:'45 min', rating:8, baking:false,
-      ings:[{qty:2,unit:'tbsp',name:'oil'},{qty:0.25,unit:'tsp',name:'MSG'},{qty:0.25,unit:'tsp',name:'chilli flakes'},{qty:2,unit:'clove',name:'large garlic, finely grated'},{qty:1,unit:'tbsp',name:'minced ginger'},{qty:0.5,unit:'tsp',name:'ground Sichuan pepper'},{qty:2,unit:'tbsp',name:'finely chopped green onion, green parts only'},{qty:1,unit:'tbsp',name:'soy sauce'},{qty:1,unit:'tbsp',name:'Chinese black vinegar'},{qty:null,unit:'',name:'broccoli'},{qty:null,unit:'',name:'Taiwanese noodles'},{qty:null,unit:'',name:'sesame seeds'}],
-      steps:[], notes:'Sauce quantities are my own version from the Keep note; the method is on the source page.' }, 2),
-    mk({ title:'Mango banana ice cream', cats:['Desserts'], tags:['Sweet','Quick','No-bake'], sourceName:'Your recipe', servings:4, time:'10 min', rating:7, baking:false,
-      ings:[{qty:0.5,unit:'',name:'pack frozen mangoes'},{qty:3,unit:'',name:'frozen bananas (3–4)'},{qty:1,unit:'',name:'date'},{qty:2,unit:'tbsp',name:'chia seeds'},{qty:1,unit:'pinch',name:'salt'},{qty:null,unit:'',name:'almond milk'}],
-      steps:['Blend everything with a tamper, adding just enough almond milk to get it moving.'], notes:'' }, 3),
-    mk({ title:'Pumpkin seed butter', cats:['Sauces'], tags:['Savoury'], sourceName:'Your recipe', servings:null, time:'20 min', baking:false,
-      ings:[{qty:4,unit:'cup',name:'toasted pumpkin seeds'},{qty:1,unit:'tsp',name:'olive oil'},{qty:0.5,unit:'tsp',name:'coarse salt'},{qty:1,unit:'tsp',name:'maple syrup'}],
-      steps:['Toast the seeds for 10–12 minutes at 155 °C fan, stirring halfway.','Blend the seeds with the tamper for about 3 minutes, stopping every minute to scrape.','Add the rest and blend until smooth.'], notes:'' }, 4)
+    mk({ title:'No knead focaccia', cats:['Bread'], tags:['Italian','Savoury'], source:'https://www.okonomikitchen.com/easy-no-knead-focaccia/', sourceName:'Okonomi Kitchen', servings:8, time:'10 min prep, 25 min bake, 12–72 h cold rise', oven:'220–230 °C', tin:'7×11 or 9×9 inch pan',
+      photo:'https://www.okonomikitchen.com/wp-content/uploads/2025/09/no-knead-focaccia-recipe.jpg', photoSrc:'https://www.okonomikitchen.com/wp-content/uploads/2025/09/no-knead-focaccia-recipe.jpg',
+      sourceImages:['https://www.okonomikitchen.com/wp-content/uploads/2025/09/no-knead-focaccia-recipe.jpg','https://www.okonomikitchen.com/wp-content/uploads/2025/09/big-bubbly-open-crumb-focaccia.jpg','https://www.okonomikitchen.com/wp-content/uploads/2025/09/big-bubbly-focaccia.jpg','https://www.okonomikitchen.com/wp-content/uploads/2025/09/blistered-focaccia-2.jpg','https://www.okonomikitchen.com/wp-content/uploads/2025/09/dimpling-focaccia.jpg'],
+      ings:[{qty:370,unit:'g',name:'bread flour',alt:{qty:3,unit:'cup'}},{qty:322,unit:'ml',name:'water',alt:{qty:1.375,unit:'cup'}},{qty:9,unit:'g',name:'salt (7–11 g, 2–3%)',alt:{qty:1.75,unit:'tsp'}},{qty:1,unit:'g',name:'instant dry yeast (for a 48 h rise)',alt:{qty:0.25,unit:'tsp'}},{qty:60,unit:'ml',name:'olive oil (45–75 ml)',alt:{qty:4,unit:'tbsp'}},{qty:1,unit:'tbsp',name:'butter, for the pan (optional)'},{qty:null,unit:'',name:'flaky salt, for topping'}],
+      steps:['Combine the dough: in a large bowl mix flour, salt, yeast and water until no dry flour remains and a shaggy dough forms. Cover and rest 30 minutes.','First stretch and folds: with wet or oiled hands, grab one side of the dough, stretch it up and fold it across; rotate the bowl 90° and repeat 4–5 times. Do a few slap and folds if the dough lifts without tearing. Cover and rest 30 minutes.','Second set: if the dough still tears when lifted, do another set of stretch and folds; if it feels developed, do a coil fold — lift the middle so the top edge comes off the bowl and tuck it under, rotate and repeat on all sides. Rest 20–30 minutes.','Two more sets of coil folds, resting 20–30 minutes between. Drizzle the dough with a little olive oil.','Bulk ferment: cover and refrigerate for at least 12 hours, preferably 48 and up to 72, until doubled, bubbly and airy. For 12 hours use 1.8 g yeast; for 72 hours use 1 g.','Day 2 — prepare the pan: oil a pan generously (the more oil, the crispier the bottom) and butter the sides, or line with parchment.','Shape: turn the dough into the pan, fold the vertical sides over then the horizontal sides, and flip so the smooth side faces up.','Second proof: drizzle 1–2 tbsp olive oil over the top, cover and proof for 2–4 hours, until airy, bubbly and jiggly.','Dimple once: oil your fingers and press the pads of your fingers all the way to the pan. Preheat the oven to 220–230 °C.','Dimple again once the oven is hot, without popping the nice bubbles. Sprinkle with flaky salt and toppings, pressing them in.','Bake on the lowest rack for 22–30 minutes, until golden on top and bottom, rotating halfway if your oven has hot spots.','Cool: loosen with a spatula, transfer to a rack and rest at least 10 minutes before slicing.'],
+      sourceNotes:'Use 2% salt if topping with salty ingredients, 3% for plain focaccia.\nYeast: 0.5% for a 12 h rise, 0.25% for 72 h, 1.25% (4.6 g) for the same-day method — then rise at room temperature 1–1.5 h instead of refrigerating and proof 30–45 min in the pan.\nDouble dimpling is optional.\nEvery oven differs: test between 220 and 230 °C and judge by colour on top and bottom.\nDirect method (no folds): mix, coat with oil, rest 10–18 h at room temperature or up to 72 h in the fridge, then continue from shaping.',
+      nutrition:{ calories:263, sugars:0.3, fat:9, saturates:2, carbs:39, fibre:1.5, protein:5, per:'⅛ focaccia (source gives the whole loaf: 2100 kcal)' }, notes:'' }, 2)
   ];
+  const igUdon = parseText("Chilli Garlic Soy Mince Udon\n\nServes 2\nIngredients\n\nFor the mince\nDrizzle of oil\n125g dried soy mince\n500ml vegetable stock, just boiled\n4 garlic cloves, grated\n2 inches ginger, grated\n6 spring onions, 3 sliced into 1 inch rounds, 3 finely sliced lengthways and placed in iced water to garnish\n2 tbsp doubanjiang / toban djan (chilli bean paste)\n1 tbsp light soy sauce\n1 tbsp dark soy sauce\n1.5 tsp caster sugar\n\nFor the sauce\n250ml vegetable stock\n1 tbsp cornflour, mixed with 2 tbsp cold water\n\nFor the noodles\n2 portions udon noodles\n\nTo serve\nFreshly cracked Sichuan pepper\nSpring onion greens\n\n*full method on my website - link is in my bio");
+  list.push(mk({ title:'Chilli garlic soy mince udon', cats:['Mains'], tags:['Asian','Savoury','Instagram'], source:'https://www.instagram.com/reel/DcjI8UthMhU/', sourceName:'Instagram', servings:2, ings: igUdon.ings, steps: igUdon.steps, sourceNotes: 'Full method on the creator\'s website — link in their bio.', baking:false }, 3));
+  const igTruf = parseText("5 simple ingredient chocolate truffle balls\n\n1 and 1/4 cup of cocoa powder \n2.5 tbsp coconut oil \n6 tbsp almond butter\n5 tbsp maple syrup \n2 pinches of salt\n\nSift the cocoa powder\nPut in all other ingredients\nMix and fold with a spatula until incorporated \nRoll into balls\nPlace on parchment paper (don\u2019t let them touch)\nDust more cocoa powder on top\nFreeze for 30 minutes or refrigerate for 4 hours\n\n#healthy #food #chocolate #recipe");
+  list.push(mk({ title:'Chocolate truffle balls (5 ingredients)', cats:['Snacks','Desserts'], tags:['Sweet','No-bake','Instagram'], source:'https://www.instagram.com/reel/DcQ5GHxBEAJ/', sourceName:'Instagram', ings: igTruf.ings, steps: igTruf.steps, baking:true }, 4));
   for (const r of list) await saveRecipe(r);
-  S.settings.sampleLoaded = true; await saveSettings();
+  S.settings.sampleLoaded = true; S.settings.sampleVersion = 6; await saveSettings();
   list.forEach(r => cachePhoto(r));
 }
 
@@ -797,7 +807,7 @@ async function boot(){
   S.timers = (await store.get('timers')) || [];
   // purge bin older than 30 days
   for (const r of S.recipes.filter(r => r.deleted && Date.now() - r.deleted > 30*86400000)) { await store.delRecipe(r.id); S.recipes = S.recipes.filter(x => x.id !== r.id); }
-  if (!S.recipes.length && !S.settings.sampleLoaded) { await loadSamples(); }
+  if (S.settings.sampleVersion !== 6) { await purgeSamples(); await loadSamples(); }
   render();
   if (S.timers.length) keepAwake();
   if (S.settings.backupEvery !== 'off') { const gap = S.settings.backupEvery === 'daily' ? 1 : 7; const n = S.recipes.filter(r => !r.deleted).length; if ((S.settings.lastBackup && Date.now() - S.settings.lastBackup > gap*86400000) || (!S.settings.lastBackup && n > 10)) setTimeout(() => toast('Time for a backup — Settings › Back up now', 4000), 1500); }
