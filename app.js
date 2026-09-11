@@ -68,7 +68,7 @@ const store = {
 /* ---------- state ---------- */
 const S = {
   recipes: [], settings: null, shopping: null, timers: [], route: { name:'library' }, hist: [],
-  lib: { tab:'All', q:'' }
+  lib: { tab:'All', q:'', sel:null }
 };
 const DEFAULT_SETTINGS = { sort:'az', wheel:'recent', openInYair:true, tempC:true, bakingGrams:true, savouryAsWritten:true, rounding:true, backupEvery:'weekly', lastBackup:null, sampleLoaded:false };
 const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36);
@@ -180,26 +180,36 @@ function parseIngLine(line){
   return out;
 }
 function parseText(text){
-  const lines = text.split(/\r?\n/).map(l => l.trim());
+  const raw = String(text||'').replace(/\r/g,'');
+  const lines = raw.split('\n');
   const out = { title:'', ings:[], steps:[], notes:'', source:'' };
-  let mode = 'start';
-  const url = text.match(/https?:\/\/\S+/); if (url) out.source = url[0];
-  for (let l of lines) {
-    if (!l) continue;
-    const lo = l.toLowerCase().replace(/[:*#_▢\-•]/g,'').trim();
-    if (/^(ingredients?)$/.test(lo)) { mode = 'ing'; continue; }
-    if (/^(method|instructions?|directions?|steps?|preparation|how to make it)$/.test(lo)) { mode = 'steps'; continue; }
-    if (/^(nutrition(al)? info(rmation)?|nutrition|you may also like|share|reviews?|comments?)$/.test(lo)) { mode = 'end'; continue; }
-    if (mode === 'end') continue;
-    if (/^(notes?|tips?)$/.test(lo)) { mode = 'notes'; continue; }
-    if (mode === 'start') { if (!out.title && !/^https?:/.test(l)) { out.title = l.replace(/^#+\s*/, '').replace(/\*/g,''); mode = 'auto'; } continue; }
-    if (/^https?:/.test(l)) continue;
-    if (mode === 'notes') { out.notes += (out.notes ? '\n' : '') + l; continue; }
-    if (mode === 'steps') { out.steps.push(l.replace(/^(\d+[.)]|step\s*\d+[:.]?|[-•*])\s*/i, '')); continue; }
-    const looksIng = /^[-•*]?\s*(\d|[¼½¾⅓⅔⅛])/.test(l) || (l.split(' ').length <= 5 && mode !== 'steps');
-    if (mode === 'ing' || (mode === 'auto' && looksIng)) { out.ings.push(parseIngLine(l)); if (mode === 'auto') mode = 'ing'; }
-    else { out.steps.push(l.replace(/^(\d+[.)]|step\s*\d+[:.]?|[-•*])\s*/i, '')); mode = 'steps'; }
+  const url = raw.match(/https?:\/\/\S+/); if (url) out.source = url[0];
+  const tm = raw.match(/^Title:\s*(.+)$/m); if (tm) out.title = cleanLine(tm[1]).replace(/\s*[-|–]\s*[^-|–]+$/, '');
+  const norm = l => l.toLowerCase().replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,'').replace(/^[#*_\s>\-•·]+|[#*_:\s]+$/g,'').trim();
+  const H_ING = /^(ingredients?|you will need|what you need)( \(.*\))?$/, H_STEP = /^(method|instructions?|directions?|steps?|preparation|how to make( it)?|procedure)$/, H_NOTE = /^(notes?|tips?|recipe notes|chef'?s? notes?)$/, H_END = /^(nutrition(al)? ?(info(rmation)?|facts)?|nutrition|you may also like|share( this)?|reviews?( & questions)?|comments?|did you make this recipe\??|more recipes|related( recipes)?|leave a (reply|review)|equipment|video|keyword|storage)$/;
+  const hasIngHead = lines.some(l => H_ING.test(norm(l)));
+  let mode = hasIngHead ? 'skip' : 'start', seenIng = false, seenStep = false;
+  for (const l0 of lines) {
+    let l = l0.trim(); if (!l) continue;
+    const n = norm(l);
+    if (H_ING.test(n)) { if (seenIng) { out.ings = []; } seenIng = true; mode = 'ing'; continue; }
+    if (H_STEP.test(n)) { if (mode === 'skip') continue; if (seenStep) out.steps = []; seenStep = true; mode = 'steps'; continue; }
+    if (H_NOTE.test(n)) { if (mode === 'skip') continue; out.notes = ''; mode = 'notes'; continue; }
+    if (H_END.test(n)) { if (mode !== 'skip') mode = 'end'; continue; }
+    if (mode === 'skip' || mode === 'end') continue;
+    if (/^https?:/.test(l) || /^!\[/.test(l) || /^\[!\[/.test(l) || /^[▢☐□\-•*·_=]+$/.test(l) || /^\d+\s*(votes?|reviews?|stars?)$/i.test(l)) continue;
+    l = l.replace(/^[▢☐□]\s*/, '');
+    if (mode === 'start') { if (!out.title) { out.title = cleanLine(l.replace(/^#+\s*/, '')); mode = 'auto'; } continue; }
+    if (mode === 'notes') { const t = cleanLine(l.replace(/^[-•*]\s*/, '')); if (t) out.notes += (out.notes ? '\n' : '') + t; continue; }
+    if (mode === 'steps') { const t = cleanLine(l.replace(/^(\d+[.)]|step\s*\d+[:.]?|[-•*])\s*/i, '')); if (t && t.length > 2) out.steps.push(t); continue; }
+    if (/^#{1,6}\s/.test(l) || /^\*\*[^*]+\*\*:?$/.test(l)) { const t = cleanLine(l.replace(/^#+\s*/, '')).replace(/:$/, ''); if (mode === 'ing' && t.length < 40) out.ings.push({ qty:null, unit:'', name:t, group:true }); continue; }
+    const words = l.split(/\s+/).length;
+    const looksIng = /^[-•*]?\s*(\d|[¼½¾⅓⅔⅛])/.test(l) || (mode === 'ing' && words <= 10) || (mode === 'auto' && words <= 5);
+    if (mode === 'ing' || (mode === 'auto' && looksIng)) { const p = parseIngLine(l); if (p.name && p.name.length < 120) out.ings.push(p); if (mode === 'auto') mode = 'ing'; }
+    else { const t = cleanLine(l.replace(/^(\d+[.)]|[-•*])\s*/, '')); if (t) out.steps.push(t); mode = 'steps'; }
   }
+  out.ings = out.ings.filter(i => i.name && !/^(skip to|jump to|print|pin( it| this)?|rate|save|share|prep time|cook time|total time|servings?|course|cuisine|author|calories|from \d+ votes|makes|yield)/i.test(i.name) && !(i.qty == null && /^[A-Z0-9\s&»'!?.]+$/.test(i.name) && !i.group));
+  if (!out.ings.some(i => !i.group)) out.ings = [];
   return out;
 }
 function detectDuration(text){
@@ -265,17 +275,33 @@ function renderLibrary(v){
   else if (S.settings.wheel === 'totry') wheel = wheel.filter(r => (r.tags||[]).includes('To try')).slice(0, 20);
   else wheel = sortRecipes(wheel);
   const tabs = ['All', ...CATEGORIES, 'To try', 'Favourite'];
-  v.innerHTML = '<div class="top"><h1>Recipes</h1><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div>'
+  const sel = S.lib.sel;
+  v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:8px"><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
+    : '<div class="top"><h1>Recipes</h1><div style="display:flex;gap:8px"><button class="rbtn" id="btnSel" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></button><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div></div>')
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
     + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide' + (r.photo ? '' : ' noimg') + '" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.parentNode.classList.add(\'noimg\');this.style.display=\'none\'">' : '<div class="tile big" style="--tb:' + ICONS[r.icon].ti + ';--ti:' + ICONS[r.icon].tb + '">' + svgIcon(r.icon) + '</div>') + '<div class="cap"><h3>' + esc(r.title) + '</h3></div></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
-    + (list.length ? list.map(r => '<button class="row" data-id="' + r.id + '"><div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button>').join('')
+    + (list.length ? list.map(r => '<div class="rw"><div class="acts"><button class="act" data-edit="' + r.id + '">Edit</button><button class="act del" data-del="' + r.id + '">Delete</button></div><button class="row" data-id="' + r.id + '">' + (sel ? '<div class="cb' + (sel.includes(r.id) ? ' on' : '') + '">' + (sel.includes(r.id) ? '✓' : '') + '</div>' : '') + '<div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button></div>').join('')
        : '<div class="empty"><b>' + (S.recipes.length ? 'Nothing here' : 'No recipes yet') + '</b>' + (S.recipes.length ? 'Try another tab or search.' : 'Tap Add to bring one in, or load the sample set from Settings.') + '</div>');
-  v.querySelector('#btnSearch').onclick = () => { S.lib.showSearch = !S.lib.showSearch; if (!S.lib.showSearch) S.lib.q = ''; render(); if (S.lib.showSearch) { const i = $('#q'); i && i.focus(); } };
+  const bs = v.querySelector('#btnSel'); if (bs) bs.onclick = () => { S.lib.sel = []; render(); };
+  const sx = v.querySelector('#selX'); if (sx) sx.onclick = () => { S.lib.sel = null; render(); };
+  const sd = v.querySelector('#selDel'); if (sd) sd.onclick = async () => { if (!sel.length) return; if (!confirm('Move ' + sel.length + ' recipe' + (sel.length === 1 ? '' : 's') + ' to the bin?')) return; for (const id of sel) { const r = S.recipes.find(x => x.id === id); if (r) { r.deleted = Date.now(); await saveRecipe(r); } } S.lib.sel = null; toast('Moved to bin'); render(); };
+  v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => go('edit', { id: b.dataset.edit }));
+  v.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { const r = S.recipes.find(x => x.id === b.dataset.del); if (!r) return; if (!confirm('Move "' + r.title + '" to the bin?')) return; r.deleted = Date.now(); await saveRecipe(r); toast('Moved to bin'); render(); });
+  if (!sel) v.querySelectorAll('.rw').forEach(initSwipe);
+  const bsx = v.querySelector('#btnSearch'); if (bsx) bsx.onclick = () => { S.lib.showSearch = !S.lib.showSearch; if (!S.lib.showSearch) S.lib.q = ''; render(); if (S.lib.showSearch) { const i = $('#q'); i && i.focus(); } };
   const qi = v.querySelector('#q'); if (qi) { qi.oninput = () => { S.lib.q = qi.value; const pos = qi.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); }; v.querySelector('#qx').onclick = () => { S.lib.q = ''; S.lib.showSearch = false; render(); }; }
   v.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.lib.tab = b.dataset.tab; render(); });
-  v.querySelectorAll('[data-id]').forEach(b => b.onclick = () => go('recipe', { id: b.dataset.id }));
+  v.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { if (b.classList.contains('row') && b.parentNode.classList.contains('open')) { b.parentNode.classList.remove('open'); b.style.transform = ''; return; } if (sel) { const i = sel.indexOf(b.dataset.id); if (i >= 0) sel.splice(i, 1); else sel.push(b.dataset.id); render(); return; } go('recipe', { id: b.dataset.id }); });
   const car = v.querySelector('#car'); if (car) initWheel(car);
+}
+function initSwipe(wrap){
+  const row = wrap.querySelector('.row'); let x0 = null, y0 = null, dx = 0, dragging = false, timer = null;
+  row.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; dx = 0; dragging = false; row.style.transition = 'none'; timer = setTimeout(() => { if (!dragging && !S.lib.sel) { S.lib.sel = [row.dataset.id]; if (navigator.vibrate) navigator.vibrate(30); render(); } }, 550); });
+  row.addEventListener('pointermove', e => { if (x0 == null) return; const mx = e.clientX - x0, my = e.clientY - y0; if (!dragging && Math.abs(mx) > 12 && Math.abs(mx) > Math.abs(my)) { dragging = true; row.setPointerCapture(e.pointerId); clearTimeout(timer); } if (Math.abs(my) > 12 && !dragging) { clearTimeout(timer); } if (!dragging) return; const open = wrap.classList.contains('open'); dx = Math.max(0, Math.min(150, (open ? 150 : 0) + mx)); row.style.transform = 'translateX(' + dx + 'px)'; });
+  const end = () => { clearTimeout(timer); if (x0 == null) return; row.style.transition = 'transform .18s ease'; if (dragging) { const open = dx > 75; wrap.classList.toggle('open', open); row.style.transform = open ? 'translateX(150px)' : ''; row.dataset.swiped = '1'; setTimeout(() => { delete row.dataset.swiped; dragging = false; }, 60); } x0 = null; };
+  row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end);
+  row.addEventListener('click', e => { if (row.dataset.swiped) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 }
 function initWheel(car){
   const slides = [].slice.call(car.querySelectorAll('.slide'));
@@ -297,7 +323,7 @@ function renderRecipe(v, id){
   if (view.id !== id) { view.id = id; view.yair = S.settings.openInYair; view.factor = 1; view.tab = 'ing'; view.done = {}; }
   const ic = ICONS[r.icon] || ICONS.rice;
   const serv = r.servings ? Math.round(r.servings * view.factor * 10)/10 : null;
-  const ings = (r.ings||[]).map(i => displayIng(i, r, view.factor, view.yair, S.settings));
+  const ings = (r.ings||[]).map(i => i.group ? { text: i.name, amt:'', group:true } : displayIng(i, r, view.factor, view.yair, S.settings));
   v.innerHTML = '<div class="rtop" style="' + tileStyle(r.icon) + '">'
     + '<button class="rbtn b1" id="bk">‹</button><button class="rbtn b2" id="fav">' + ((r.tags||[]).includes('Favourite') ? '♥' : '♡') + '</button><button class="edit" id="ed">Edit</button>'
     + '<div class="photo">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div>'
@@ -307,8 +333,8 @@ function renderRecipe(v, id){
     + (r.source ? '<a class="src" href="' + esc(r.source) + '" target="_blank" rel="noopener">' + esc(sourceLabel(r) || 'Source') + ' ↗</a>' : (r.sourceName ? '<div class="src" style="text-decoration:none">' + esc(r.sourceName) + '</div>' : ''))
     + '<div class="seg"><button class="' + (view.yair ? '' : 'on') + '" data-mode="orig">Original</button><button class="' + (view.yair ? 'on' : '') + '" data-mode="yair">Yair mode</button></div>'
     + '<div class="seg" style="margin-top:8px"><button class="' + (view.tab === 'ing' ? 'on' : '') + '" data-tab="ing">Ingredients</button><button class="' + (view.tab === 'steps' ? 'on' : '') + '" data-tab="steps">Method</button><button class="' + (view.tab === 'notes' ? 'on' : '') + '" data-tab="notes">Notes</button></div>'
-    + (view.tab === 'ing' ? '<div class="serv"><span>' + (view.yair && isBakingRecipe(r) ? 'Grams where it matters' : 'As written') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><span>' + serv + '</span><button id="sp">+</button>' : '<button id="sm">−</button><span>' + view.factor + '×</button><button id="sp">+</button>') + '</span></div>'
-        + '<div class="ing">' + ings.map(i => '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
+    + (view.tab === 'ing' ? '<div class="serv"><span>' + (view.yair && isBakingRecipe(r) ? 'Grams where it matters' : 'As written') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" style="font-weight:700;padding:2px 6px">' + fmtQty(serv) + (Math.abs(view.factor - 1) > 0.001 ? ' <small style="color:var(--mute);font-weight:600">(' + (Math.round(view.factor*100)/100) + '×)</small>' : '') + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" style="font-weight:700;padding:2px 6px">' + fmtQty(view.factor) + '×</button><button id="sp">+</button>') + '</span></div>'
+        + '<div class="ing">' + ings.map(i => i.group ? '<div class="grp" style="border:0;padding:12px 0 2px">' + esc(i.text) + '</div>' : '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
     + (view.tab === 'steps' ? '<div style="margin-top:8px">' + (r.steps||[]).map((s, i) => { const d = view.done[i]; const dur = (r.stepTimers && r.stepTimers[i] != null) ? r.stepTimers[i] : detectDuration(s); const run = S.timers.find(t => t.recipeId === r.id && t.step === i); return '<div class="step' + (d ? ' done' : '') + '"><i data-done="' + i + '">' + (d ? '✓' : i+1) + '</i><div class="txt">' + esc(convertTempsInText(s, view.yair && S.settings.tempC)) + (run ? '<br><button class="chip run" data-stop="' + run.id + '">▮▮ <b>' + fmtDur((run.end - Date.now())/1000) + '</b> · stop</button>' : dur ? '<br><button class="chip" data-timer="' + i + '" data-secs="' + dur + '">▷ ' + fmtDurShort(dur) + '</button>' : '') + '</div></div>'; }).join('') + ((r.steps||[]).length ? '' : '<div class="empty">No method yet — tap Edit.</div>') + '</div>' : '')
     + (view.tab === 'notes' ? (r.sourceNotes ? '<div class="lbl">From the source</div><div class="notes">' + esc(r.sourceNotes) + '</div>' : '') + '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
         + (r.oven || r.tin ? '<div class="lbl">Oven and tin</div><div class="notes">' + esc([r.oven ? convertTempsInText(r.oven, view.yair && S.settings.tempC) : '', r.tin].filter(Boolean).join(' · ')) + '</div>' : '')
@@ -322,7 +348,8 @@ function renderRecipe(v, id){
   v.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { view.yair = b.dataset.mode === 'yair'; render(); });
   v.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { view.tab = b.dataset.tab; render(); });
   const sm = v.querySelector('#sm'), sp = v.querySelector('#sp');
-  if (sm) { const step = r.servings ? 1/r.servings : 0.5; sm.onclick = () => { view.factor = Math.max(step, Math.round((view.factor - step)*1000)/1000); render(); }; sp.onclick = () => { view.factor = Math.round((view.factor + step)*1000)/1000; render(); }; }
+  if (sm) { const step = r.servings ? 0.5/r.servings : 0.5; sm.onclick = () => { view.factor = Math.max(step, Math.round((view.factor - step)*1000)/1000); render(); }; sp.onclick = () => { view.factor = Math.round((view.factor + step)*1000)/1000; render(); };
+    const st = v.querySelector('#stv'); if (st) st.onclick = () => { const val = prompt(r.servings ? 'Servings' : 'Multiply by', r.servings ? serv : view.factor); const n = parseQty(val); if (n && n > 0) { view.factor = r.servings ? n/r.servings : n; render(); } }; }
   v.querySelectorAll('[data-done]').forEach(b => b.onclick = () => { const i = b.dataset.done; view.done[i] = !view.done[i]; render(); });
   v.querySelectorAll('[data-timer]').forEach(b => b.onclick = () => startTimer(r, Number(b.dataset.timer), Number(b.dataset.secs)));
   v.querySelectorAll('[data-stop]').forEach(b => b.onclick = () => stopTimer(b.dataset.stop));
@@ -335,7 +362,8 @@ function nutritionBlock(r, factor){
   const keys = [['calories','kcal',''],['fat','Fat','g'],['saturates','Saturates','g'],['carbs','Carbs','g'],['sugars','Sugars','g'],['fibre','Fibre','g'],['protein','Protein','g']];
   const cells = keys.filter(k => n[k[0]] != null).map(k => '<div><small>' + k[1] + '</small><b>' + Math.round(n[k[0]]) + (k[2] ? ' ' + k[2] : '') + '</b></div>').join('');
   const batch = r.servings ? Math.round(r.servings*factor*10)/10 : null;
-  return '<div class="lbl" style="margin-top:18px">Per serving' + (n.per ? ' · ' + esc(n.per) : '') + (batch ? ' · batch of ' + batch : '') + '</div><div class="nut">' + cells + '</div><div style="font-size:11px;color:var(--mute);margin-top:6px">Source figures for the recipe as published; they don\'t recalculate when you change ingredients.</div>';
+  const tot = batch ? keys.filter(k => n[k[0]] != null).map(k => '<div><small>' + k[1] + '</small><b>' + Math.round(n[k[0]]*batch) + (k[2] ? ' ' + k[2] : '') + '</b></div>').join('') : '';
+  return '<div class="lbl" style="margin-top:18px">Per serving' + (n.per ? ' · ' + esc(n.per) : '') + '</div><div class="nut">' + cells + '</div>' + (tot ? '<div class="lbl">Whole batch · ' + fmtQty(batch) + ' servings' + (Math.abs(factor - 1) > 0.001 ? ' · ' + (Math.round(factor*100)/100) + '×' : '') + '</div><div class="nut">' + tot + '</div>' : '') + '<div style="font-size:11px;color:var(--mute);margin-top:6px">Source figures for the recipe as published; they scale with servings but don\'t recalculate if you change the ingredients.</div>';
 }
 
 /* ---------- timers ---------- */
@@ -416,13 +444,26 @@ function openAddSheet(){
   });
 }
 /* ---------- URL import: proxies → JSON-LD → text fallback ---------- */
-const PROXIES = [u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), u => 'https://corsproxy.io/?' + encodeURIComponent(u), u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)];
+const PROXIES = [
+  { u: u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u), json:'contents' },
+  { u: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+  { u: u => 'https://corsproxy.io/?url=' + encodeURIComponent(u) },
+  { u: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
+  { u: u => 'https://r.jina.ai/' + u, headers: { 'X-Return-Format': 'html' } }
+];
 async function fetchVia(url, asText){
   let lastErr;
   if (url.startsWith(location.origin)) { const res = await fetch(url); return asText ? await res.text() : await res.blob(); }
-  for (const p of PROXIES) { try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000); const res = await fetch(p(url), { signal: ctl.signal }); clearTimeout(t); if (!res.ok) throw new Error(res.status); return asText ? await res.text() : await res.blob(); } catch(e) { lastErr = e; } }
+  for (const p of PROXIES) {
+    if (!asText && p.json) continue;
+    try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000); const res = await fetch(p.u(url), { signal: ctl.signal, headers: p.headers || {} }); clearTimeout(t); if (!res.ok) throw new Error(res.status);
+      if (!asText) return await res.blob();
+      let txt = await res.text(); if (p.json) { try { txt = JSON.parse(txt)[p.json] || ''; } catch(e) { txt = ''; } }
+      if (txt && txt.length > 500) return txt; throw new Error('empty'); } catch(e) { lastErr = e; }
+  }
   throw lastErr || new Error('fetch failed');
 }
+function mdImages(md){ const out = []; const rx = /!\[[^\]]*\]\((https?:[^)\s]+)/g; let m; while ((m = rx.exec(md))) { const u = m[1]; if (/\.svg|logo|icon|avatar|gravatar|placeholder|pinterest|button|badge|emoji|1x1|spacer/i.test(u)) continue; if (!out.includes(u)) out.push(u); } return out; }
 function isoDur(d){ if (!d || typeof d !== 'string') return ''; const m = d.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/i); if (!m) return ''; const h = (Number(m[1]||0)*24) + Number(m[2]||0), mi = Number(m[3]||0); return h ? h + ' h' + (mi ? ' ' + mi : '') : mi ? mi + ' min' : ''; }
 function findRecipeLD(node){ if (!node) return null; if (Array.isArray(node)) { for (const n of node) { const r = findRecipeLD(n); if (r) return r; } return null; } if (typeof node !== 'object') return null; const t = node['@type']; if (t && (t === 'Recipe' || (Array.isArray(t) && t.includes('Recipe')))) return node; if (node['@graph']) return findRecipeLD(node['@graph']); if (node.mainEntity) return findRecipeLD(node.mainEntity); return null; }
 function ldText(x){ if (!x) return ''; if (typeof x === 'string') return x; if (Array.isArray(x)) return x.map(ldText).join(' '); return x.text || x.name || ''; }
@@ -457,7 +498,9 @@ async function importFromUrl(url, onStatus){
       draft = newRecipe({ title: cleanLine(ldText(ld.name)).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || (ld.author ? ldText(ld.author) : hostOf(url)), ings, steps, notes:'', sourceNotes: notes, servings: yieldNum(ld.recipeYield), time: isoDur(ld.totalTime) || [isoDur(ld.prepTime), isoDur(ld.cookTime)].filter(Boolean).join(' + '), nutrition: ldNutrition(ld.nutrition), photo: uniq[0] || null, photoSrc: uniq[0] || null, sourceImages: uniq.slice(0, 8), cats, tags });
     } else {
       const title = (doc.querySelector('meta[property="og:title"]') || {}).content || doc.title || '';
-      const text = (doc.body ? doc.body.innerText || doc.body.textContent : '') || '';
+      doc.querySelectorAll('nav, header, footer, script, style, noscript, .comments, #comments, .sidebar, aside').forEach(e => e.remove());
+      const root = doc.querySelector('.wprm-recipe, .tasty-recipes, .mv-create-card, [class*="recipe-card"], article, main') || doc.body;
+      const text = root ? [].slice.call(root.querySelectorAll('h1,h2,h3,h4,li,p,div,span')).filter(e => e.children.length === 0 || /^(LI|P|H[1-4])$/.test(e.tagName)).map(e => e.textContent.trim()).filter(Boolean).join('\n') : '';
       const parsed = parseText(text);
       if (parsed.ings.length || parsed.steps.length) draft = newRecipe({ title: cleanLine(title).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: ogImg, photoSrc: ogImg, sourceImages: [ogImg, ...bodyImgs].filter(Boolean).slice(0, 8) });
     }
@@ -465,9 +508,11 @@ async function importFromUrl(url, onStatus){
   if (!draft) {
     onStatus && onStatus('Trying a text reader…');
     try {
-      const txt = await (await fetch('https://r.jina.ai/' + url, { headers: { 'X-Return-Format': 'text' } })).text();
-      const parsed = parseText(txt.replace(/^Title:\s*/m, '').replace(/^URL Source:.*$/m, ''));
-      if (parsed.ings.length) draft = newRecipe({ title: parsed.title.replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes });
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+      const md = await (await fetch('https://r.jina.ai/' + url, { signal: ctl.signal, headers: { 'X-Return-Format': 'markdown' } })).text(); clearTimeout(t);
+      const parsed = parseText(md);
+      const imgs = mdImages(md);
+      if (parsed.ings.length) draft = newRecipe({ title: parsed.title, source: url, sourceName: hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: imgs[0] || null, photoSrc: imgs[0] || null, sourceImages: imgs.slice(0, 8) });
     } catch(e) {}
   }
   if (draft) { if (!draft.title) draft.title = hostOf(url); draft.icon = guessIcon(draft.title, draft.cats); onStatus && onStatus('Got it.'); }
@@ -507,7 +552,8 @@ function renderEdit(v, id, draft){
     + '<div class="lbl">Source</div><input class="fld" id="fSrc" placeholder="https://… or a name" value="' + esc(r.source) + '"><input class="fld" id="fSrcName" style="margin-top:6px" placeholder="Shown as (e.g. Nora Cooks)" value="' + esc(r.sourceName) + '">'
     + '<div class="lbl">My notes</div><textarea class="fld" id="fNotes" placeholder="What you changed, what to try next time">' + esc(r.notes) + '</textarea>'
     + '<div class="lbl">Rating</div><div class="rate">' + [1,2,3,4,5,6,7,8,9,10].map(n => '<button class="' + (r.rating === n ? 'on' : '') + '" data-rate="' + n + '">' + n + '</button>').join('') + '</div>'
-    + '<div style="height:30px"></div></div>';
+    + (orig ? '<div style="margin-top:22px"><button class="pill danger" id="delEdit">Delete recipe</button></div>' : '') + '<div style="height:30px"></div></div>';
+  const de = v.querySelector('#delEdit'); if (de) de.onclick = async () => { if (!confirm('Move "' + orig.title + '" to the bin?')) return; orig.deleted = Date.now(); await saveRecipe(orig); toast('Moved to bin'); S.hist = S.hist.filter(h => h.name !== 'edit' && h.name !== 'recipe'); go('library', null, true); };
   // ingredients
   const ingsEl = v.querySelector('#ings');
   function drawIngs(){
@@ -583,7 +629,7 @@ function buildList(){
     const r = S.recipes.find(x => x.id === id); if (!r || r.deleted) continue;
     const cfg = sel[id];
     for (const ing of (r.ings||[])) {
-      if (!(ing.name||'').trim() || /^(water|tap water|ice)\b/.test(normName(ing.name))) continue;
+      if (!(ing.name||'').trim() || ing.group || /^(water|tap water|ice)\b/.test(normName(ing.name))) continue;
       const jm = (ing.name||'').toLowerCase().match(/\b(lemon|lime|orange)s?\b/);
       if (jm && /juice|zest/.test(ing.name.toLowerCase()) && ing.qty != null) {
         const fruit = jm[1]; const per = fruit === 'lemon' ? 45 : fruit === 'lime' ? 30 : 80; const u = ing.unit;
@@ -596,24 +642,27 @@ function buildList(){
       // canonicalise to grams / ml where we can, otherwise keep the display amount
       let key = normName(ing.name), base = null, unit = ing.unit || '';
       const q = ing.qty != null ? ing.qty * cfg.mult : null;
+      const nm = ing.name.toLowerCase();
+      const liquid = /milk|cream|water|oil|juice|vinegar|stock|broth|sauce|syrup|wine|beer|aquafaba|coffee|tea\b|brine|liquid/.test(nm);
+      const dens = densityFor(ing.name);
+      const small = (unit === 'tsp' || unit === 'tbsp') && (unit === 'tbsp' ? ing.qty : ing.qty/3) < 1 && dens.est;
       if (q != null) {
         if (unit === 'g' || unit === 'kg') base = { g: unit === 'g' ? q : q*1000 };
         else if (unit === 'oz' || unit === 'lb') base = { g: q * (unit === 'oz' ? 28.35 : 453.6) };
-        else if (unit === 'ml' || unit === 'l') base = { ml: unit === 'ml' ? q : q*1000 };
-        else if (CUPS[unit] !== undefined && (cfg.yair && isBakingRecipe(r)) && !/juice|zest|extract|essence/.test(ing.name.toLowerCase()) && !((unit === 'tsp' || unit === 'tbsp') && (unit === 'tbsp' ? ing.qty : ing.qty/3) < 2 && !((/yeast/.test(ing.name.toLowerCase()) && !/nutritional/.test(ing.name.toLowerCase())) || (/salt/.test(ing.name.toLowerCase()) && (r.cats||[]).includes('Bread'))))) base = { g: q * CUPS[unit] * densityFor(ing.name).g };
+        else if (unit === 'ml' || unit === 'l') base = { g: unit === 'ml' ? q : q*1000, liquid:true };
+        else if (CUPS[unit] !== undefined && !small && (liquid || !dens.est || unit === 'cup')) base = { g: q * CUPS[unit] * (liquid && dens.est ? 240 : dens.g), liquid };
         else base = { other: q, unit };
       }
-      const k = key + '|' + (base ? (base.g != null ? 'g' : base.ml != null ? 'ml' : 'o:' + base.unit) : 'x');
-      if (!merged[k]) merged[k] = { name: ing.name, key: k, g:0, ml:0, other:0, unit, from:[], text:[] };
+      const k = key + '|' + (base ? (base.g != null ? 'g' : 'o:' + base.unit) : 'x');
+      if (!merged[k]) merged[k] = { name: ing.name, key: k, g:0, ml:0, other:0, unit, from:[], text:[], liquid: !!(base && base.liquid) || liquid };
       const m = merged[k];
-      if (base) { if (base.g != null) m.g += base.g; else if (base.ml != null) m.ml += base.ml; else m.other += base.other; } else m.text.push(d.amt);
+      if (base) { if (base.g != null) m.g += base.g; else m.other += base.other; } else m.text.push(d.amt);
       if (!m.from.includes(r.title)) m.from.push(r.title);
     }
   }
   const items = Object.values(merged).map(m => {
     let amt = '';
-    if (m.g) amt = fmtGrams(roundGrams(m.g, true));
-    else if (m.ml) amt = m.ml >= 1000 ? (Math.round(m.ml/10)/100) + ' l' : Math.round(m.ml) + ' ml';
+    if (m.g) amt = m.liquid ? (m.g >= 1000 ? (Math.round(m.g/10)/100) + ' l' : Math.round(m.g) + ' ml') : fmtGrams(roundGrams(m.g, true));
     else if (m.other) amt = m.fruit ? fmtQty(Math.ceil(m.other*2)/2) : fmtQty(Math.round(m.other*4)/4) + (m.unit ? ' ' + m.unit + (m.unit === 'cup' && m.other > 1 ? 's' : '') : '');
     else amt = m.text.filter(Boolean).join(' + ');
     return { id: m.key, name: m.name.replace(/^./, c => c.toUpperCase()), amt, aisle: aisleFor(m.name), from: m.from, done: !!(S.shopping.done||{})[m.key] };
