@@ -302,7 +302,7 @@ function renderLibrary(v){
   v.innerHTML = (sel ? '<div class="top"><h1>' + sel.length + ' selected</h1><div style="display:flex;gap:6px"><button class="pill ghost" id="selAll">All</button><button class="pill danger" id="selDel">Delete</button><button class="pill ghost" id="selX">Done</button></div></div>'
     : '<div class="top"><h1>Recipes</h1><div style="display:flex;gap:8px"><button class="rbtn" id="btnSel" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></button><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div></div>')
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
-    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><h3>' + esc(r.title) + '</h3></button>').join('') + '</div>' : '')
+    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '"><div class="disc">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div><span class="pill">' + esc(r.title) + '</span></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
     + (S.lib.icon ? '<div class="ifilter"><div class="tile" style="' + tileStyle(S.lib.icon) + '">' + svgIcon(S.lib.icon) + '</div><span>' + S.lib.icon.replace('icecream', 'ice cream') + ' recipes</span><button id="ifx">✕</button></div>' : '')
     + (list.length ? list.map(r => '<div class="rw"><div class="acts"><button class="act" data-edit="' + r.id + '">Edit</button><button class="act del" data-del="' + r.id + '">Delete</button></div><button class="row" data-id="' + r.id + '">' + (sel ? '<div class="cb' + (sel.includes(r.id) ? ' on' : '') + '">' + (sel.includes(r.id) ? '✓' : '') + '</div>' : '') + '<div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button></div>').join('')
@@ -334,23 +334,25 @@ function initWheel(car){
   function update(){
     const rect = car.getBoundingClientRect(), mid = rect.left + rect.width/2;
     slides.forEach(s => { const r = s.getBoundingClientRect(), d = (r.left + r.width/2 - mid)/r.width, a = Math.min(Math.abs(d), 2.2);
-      const scale = a < 1 ? 1.12 - 0.34*a : Math.max(0.5, 0.78 - 0.14*(a - 1));
-      s.style.transform = 'translateX(' + (-d*30) + 'px) scale(' + scale + ')';
-      s.style.opacity = Math.max(0.25, 1 - 0.42*a);
-      s.style.zIndex = String(100 - Math.round(a*40)); });
+      const scale = a < 1 ? 1.1 - 0.36*a : Math.max(0.46, 0.74 - 0.14*(a - 1));
+      s.style.transform = 'translateX(' + (-d*26) + 'px) scale(' + scale + ')';
+      s.style.opacity = Math.max(0.22, 1 - 0.45*a);
+      s.style.zIndex = String(100 - Math.round(a*40));
+      s.classList.toggle('mid', a < 0.5); });
   }
   car.addEventListener('scroll', () => requestAnimationFrame(update), { passive:true });
-  let t0 = 0, x0 = 0, lastX = 0, lastT = 0, vel = 0, down = false;
-  car.addEventListener('pointerdown', e => { down = true; t0 = lastT = performance.now(); x0 = lastX = e.clientX; vel = 0; });
-  car.addEventListener('pointermove', e => { if (!down) return; const now = performance.now(); const dt = now - lastT; if (dt > 8) { vel = (e.clientX - lastX)/dt; lastX = e.clientX; lastT = now; } });
-  const release = e => {
+  const step = () => (slides[1] ? slides[1].offsetLeft - slides[0].offsetLeft : 180);
+  const centreOf = i => { const t = slides[Math.max(0, Math.min(slides.length - 1, i))]; return t.offsetLeft - (car.clientWidth - t.offsetWidth)/2; };
+  const nearest = () => Math.round((car.scrollLeft - centreOf(0)) / step());
+  let down = false, moved = 0, x0 = 0, lastX = 0, lastT = 0, vel = 0, settle = null;
+  car.addEventListener('pointerdown', e => { down = true; moved = 0; x0 = lastX = e.clientX; lastT = performance.now(); vel = 0; clearTimeout(settle); });
+  car.addEventListener('pointermove', e => { if (!down) return; moved = Math.abs(e.clientX - x0); const now = performance.now(), dt = now - lastT; if (dt > 10) { const v = (e.clientX - lastX)/dt; vel = vel*0.4 + v*0.6; lastX = e.clientX; lastT = now; } });
+  const release = () => {
     if (!down) return; down = false;
-    const dur = performance.now() - t0, dist = Math.abs((e.clientX || lastX) - x0);
-    if (dur < 350 && dist > 40 && Math.abs(vel) > 0.55) {
-      const w = slides[0] ? slides[0].offsetWidth + 8 : 180;
-      const extra = Math.min(4, Math.round(Math.abs(vel) * 1.6)) * w * (vel < 0 ? 1 : -1);
-      car.scrollBy({ left: extra, behavior: 'smooth' });
-    }
+    const idle = performance.now() - lastT > 120;
+    const jump = idle || moved < 12 ? 0 : Math.sign(-vel) * Math.min(12, Math.round(Math.pow(Math.abs(vel) * 2.6, 1.35)));
+    clearTimeout(settle);
+    settle = setTimeout(() => { const target = Math.max(0, Math.min(slides.length - 1, nearest() + jump)); car.scrollTo({ left: centreOf(target), behavior: 'smooth' }); }, jump ? 0 : 90);
   };
   car.addEventListener('pointerup', release); car.addEventListener('pointercancel', release);
   const first = slides[Math.min(1, slides.length - 1)];
@@ -510,7 +512,8 @@ async function fetchVia(url, asText){
     finally { clearTimeout(t); }
   };
   const list = PROXIES.filter(p => asText || !p.json);
-  return await Promise.any(list.map(one));
+  try { return await Promise.any(list.map(one)); }
+  catch(e) { await new Promise(r => setTimeout(r, 1200)); return await Promise.any(list.map(one)); }
 }
 function mdImages(md){ const out = []; const rx = /!\[[^\]]*\]\((https?:[^)\s]+)/g; let m; while ((m = rx.exec(md))) { const u = m[1]; if (/\.svg|logo|icon|avatar|gravatar|placeholder|pinterest|button|badge|emoji|1x1|spacer/i.test(u)) continue; if (!out.includes(u)) out.push(u); } return out; }
 function isoDur(d){ if (!d || typeof d !== 'string') return ''; const m = d.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/i); if (!m) return ''; const h = (Number(m[1]||0)*24) + Number(m[2]||0), mi = Number(m[3]||0); return h ? h + ' h' + (mi ? ' ' + mi : '') : mi ? mi + ' min' : ''; }
@@ -573,6 +576,16 @@ async function cachePhoto(r){
   if (!r.photo || !/^https?:/.test(r.photo)) return;
   try { const blob = await fetchVia(r.photo, false); if (!blob || !/^image\//.test(blob.type)) return; const data = await shrinkImage(blob, 900); if (r.photoSrc === r.photo || /^https?:/.test(r.photo)) { r.photo = data; if (S.recipes.find(x => x.id === r.id)) await saveRecipe(r); } } catch(e) {}
 }
+function pasteSheet(title, hint, onDone){
+  closeSheet();
+  const dim = document.createElement('div'); dim.className = 'dim'; dim.id = 'dim';
+  const sh = document.createElement('div'); sh.className = 'sheet'; sh.id = 'sheet';
+  sh.innerHTML = '<div class="grab"></div><h2>' + esc(title) + '</h2><div class="lbl">' + esc(hint) + '</div><textarea class="fld" id="pasteBox" style="min-height:170px"></textarea><div style="display:flex;gap:8px;margin-top:12px"><button class="ghostbtn" id="pc">Cancel</button><button class="primary" id="pg">Add</button></div>';
+  document.body.appendChild(dim); document.body.appendChild(sh);
+  dim.onclick = closeSheet; sh.querySelector('#pc').onclick = closeSheet;
+  sh.querySelector('#pg').onclick = () => { const t = sh.querySelector('#pasteBox').value; closeSheet(); if (t && t.trim()) onDone(t); };
+  setTimeout(() => sh.querySelector('#pasteBox').focus(), 60);
+}
 function closeSheet(){ const d = $('#dim'), s = $('#sheet'); d && d.remove(); s && s.remove(); }
 function newRecipe(o){
   const r = Object.assign({ id: uid(), title:'', cats:[], tags:[], ings:[], steps:[], notes:'', source:'', sourceName:'', servings:null, time:'', oven:'', tin:'', rating:null, photo:null, crop:{ x:0, y:0, s:1 }, created: Date.now(), updated: Date.now() }, o);
@@ -596,11 +609,13 @@ function renderEdit(v, id, draft){
     + '<div class="lbl">Categories</div><div class="chips" id="cats">' + CATEGORIES.map(c => '<button class="' + ((r.cats||[]).includes(c) ? 'on' : '') + '" data-cat="' + c + '">' + c + '</button>').join('') + '</div>'
     + '<div class="lbl">Cuisine and tags</div><div class="chips" id="tags">' + [...CUISINES, ...TAGS].map(c => '<button class="' + ((r.tags||[]).includes(c) ? 'on' : '') + '" data-tag="' + c + '">' + c + '</button>').join('') + '</div>'
     + '<div class="lbl">Yair mode treats this as</div><div class="seg"><button class="' + (isBakingRecipe(r) ? 'on' : '') + '" data-bake="1">Baking — grams</button><button class="' + (isBakingRecipe(r) ? '' : 'on') + '" data-bake="0">Savoury — as written</button></div>'
-    + '<div class="lbl">Ingredients — quantity, unit, name</div><div id="ings"></div><button class="ghostbtn" id="addIng">Add ingredient</button>'
-    + '<div class="lbl">Method — one step per box</div><div id="steps"></div><button class="ghostbtn" id="addStep">Add step</button>'
+    + '<div class="lbl">Ingredients — quantity, unit, name</div><div id="ings"></div><div style="display:flex;gap:8px"><button class="ghostbtn" id="addIng">Add one</button><button class="ghostbtn" id="pasteIng">Paste a list</button></div>'
+    + '<div class="lbl">Method — one step per box</div><div id="steps"></div><div style="display:flex;gap:8px"><button class="ghostbtn" id="addStep">Add one</button><button class="ghostbtn" id="pasteStep">Paste a method</button></div>'
     + '<div class="lbl">Time and servings</div><div class="irow"><input class="fld" id="fTime" style="flex:1" placeholder="1 h 10" value="' + esc(r.time) + '"><input class="fld" id="fServ" style="flex:1" placeholder="Serves" inputmode="decimal" value="' + (r.servings ?? '') + '"></div>'
     + '<div class="lbl">Oven and tin</div><div class="irow"><input class="fld" id="fOven" style="flex:1" placeholder="220 °C fan" value="' + esc(r.oven) + '"><input class="fld" id="fTin" style="flex:1" placeholder="20 cm round" value="' + esc(r.tin) + '"></div>'
-    + '<div class="lbl">Source</div><input class="fld" id="fSrc" placeholder="https://… or a name" value="' + esc(r.source) + '"><input class="fld" id="fSrcName" style="margin-top:6px" placeholder="Shown as (e.g. Nora Cooks)" value="' + esc(r.sourceName) + '">'
+    + '<div class="lbl">Source</div><input class="fld" id="fSrc" placeholder="https://… or a name" value="' + esc(r.source) + '">'
+    + (r.source ? '<button class="ghostbtn" id="refetchOne" style="margin-top:6px">Fetch this recipe from the link</button>' : '')
+    + '<input class="fld" id="fSrcName" style="margin-top:6px" placeholder="Shown as (e.g. Nora Cooks)" value="' + esc(r.sourceName) + '">'
     + '<div class="lbl">My notes</div><textarea class="fld" id="fNotes" placeholder="What you changed, what to try next time">' + esc(r.notes) + '</textarea>'
     + '<div class="lbl">Rating</div><div class="rate">' + [1,2,3,4,5,6,7,8,9,10].map(n => '<button class="' + (r.rating === n ? 'on' : '') + '" data-rate="' + n + '">' + n + '</button>').join('') + '</div>'
     + (orig ? '<div style="margin-top:22px"><button class="pill danger" id="delEdit">Delete recipe</button></div>' : '') + '<div style="height:30px"></div></div>';
@@ -619,6 +634,33 @@ function renderEdit(v, id, draft){
     });
   }
   drawIngs();
+  v.querySelector('#pasteIng').onclick = () => pasteSheet('Paste ingredients', 'One per line, straight from the recipe page. Headings like "For the sauce" are kept as group labels.', t => {
+    const lines = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const l of lines) {
+      if (/^(ingredients?|method|instructions?|directions?)\s*:?$/i.test(l)) continue;
+      if (!/\d|[¼½¾⅓⅔⅛]/.test(l) && l.split(/\s+/).length <= 5 && /[:：]$|^for\b/i.test(l)) { r.ings.push({ qty:null, unit:'', name: cleanLine(l).replace(/[:：]$/, ''), group:true }); continue; }
+      const p = parseIngLine(l); if (p.name) r.ings.push(p);
+    }
+    drawIngs(); toast(lines.length + ' lines added');
+  });
+  v.querySelector('#pasteStep').onclick = () => pasteSheet('Paste the method', 'Paste the whole method. Numbered steps or blank lines between them both work.', t => {
+    let parts = t.split(/\r?\n\s*\r?\n/).map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) parts = t.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) parts = t.split(/(?=\b(?:Step\s*)?\d{1,2}[.)]\s)/i).map(x => x.trim()).filter(Boolean);
+    for (const x of parts) { const c = cleanLine(x.replace(/^(step\s*)?\d{1,2}[.)]\s*/i, '')); if (c && c.length > 2 && !/^(method|instructions?|directions?)\s*:?$/i.test(c)) r.steps.push(c); }
+    drawSteps(); toast(r.steps.length + ' steps');
+  });
+  const rf = v.querySelector('#refetchOne'); if (rf) rf.onclick = async () => {
+    rf.textContent = 'Fetching…';
+    let got = null; try { got = await importFromUrl(r.source); } catch(e) { got = null; }
+    if (!got || (!got.ings.length && !got.steps.length)) { rf.textContent = 'Nothing found — paste the recipe instead'; return; }
+    if (got.ings.length) r.ings = got.ings;
+    if (got.steps.length) r.steps = got.steps;
+    r.servings = r.servings || got.servings; r.time = r.time || got.time; r.nutrition = r.nutrition || got.nutrition; r.sourceNotes = r.sourceNotes || got.sourceNotes;
+    if (!r.photo && got.photo) { r.photo = got.photo; r.photoSrc = got.photoSrc; r.sourceImages = got.sourceImages; }
+    if (got.title && (!r.title || /^https?:|^www\./.test(r.title))) r.title = got.title;
+    S.route.draft = r; renderEdit(v, id, r); toast('Filled in from the link');
+  };
   v.querySelector('#addIng').onclick = () => { r.ings.push({ qty:null, unit:'', name:'' }); drawIngs(); const last = ingsEl.querySelector('.irow:last-child .n'); last && last.focus(); };
   // steps
   const stepsEl = v.querySelector('#steps');
@@ -907,7 +949,7 @@ function renderImport(v){
   const stop = v.querySelector('#stop'); if (stop) stop.onclick = () => { I.running = false; render(); };
 }
 async function runImport(){
-  const I = S.imp; I.running = true; I.done = 0; I.log = [];
+  const I = S.imp; I.running = true; I.done = 0; I.log = []; I.fails = 0;
   keepAwake();
   for (const it of I.items) {
     if (!I.running) break;
@@ -953,9 +995,10 @@ async function runImport(){
       I.log.push((it.status === 'ok' ? '✓ ' : '· ') + r.title);
       if (r.photo && /^https?:/.test(r.photo)) cachePhoto(r);
     } catch(e) { it.status = 'fail'; I.log.push('✕ ' + it.title); }
+    if (it.status === 'fail') { I.fails++; if (I.fails >= 3 && !I.slow) { I.slow = true; I.log.push('· slowing down — the relays may be rate-limiting'); } } else I.fails = 0;
     I.done++;
     render();
-    if (it.kind === 'link') await new Promise(res => setTimeout(res, 250));
+    if (it.kind === 'link') await new Promise(res => setTimeout(res, I.slow ? 1500 : 400));
   }
   I.running = false; I.current = ''; render();
   toast('Import finished');
