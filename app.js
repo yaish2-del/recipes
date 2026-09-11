@@ -77,7 +77,7 @@ const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(3
 const DENSITY = [ // grams per US cup, longest match wins
   ['bread flour',127],['strong flour',127],['plain flour',120],['all-purpose flour',120],['all purpose flour',120],['wholemeal flour',120],['whole wheat flour',120],['spelt flour',120],['rye flour',102],['rice flour',158],['almond flour',96],['ground almonds',96],['chickpea flour',92],['gram flour',92],['buckwheat flour',120],['oat flour',90],['self-raising flour',120],['flour',120],
   ['icing sugar',120],['powdered sugar',120],['caster sugar',200],['brown sugar',220],['coconut sugar',150],['sugar',200],['maple syrup',320],['agave',320],['honey',340],['golden syrup',340],['date syrup',340],
-  ['cocoa',85],['cacao',85],['chocolate chips',170],['chocolate',170],['cornflour',128],['cornstarch',128],['baking powder',230],['baking soda',220],['bicarbonate',220],['instant yeast',150],['dried yeast',150],['yeast',150],['salt',288],['flaky salt',150],
+  ['cocoa',85],['cacao',85],['chocolate chips',170],['chocolate',170],['cornflour',128],['cornstarch',128],['baking powder',230],['baking soda',220],['bicarbonate',220],['nutritional yeast',60],['instant yeast',150],['dried yeast',150],['yeast',150],['salt',288],['flaky salt',150],
   ['rolled oats',90],['oats',90],['desiccated coconut',80],['shredded coconut',80],['coconut flakes',80],['breadcrumbs',100],['panko',60],['semolina',170],['polenta',160],['cornmeal',160],['rice',185],['quinoa',170],['lentils',190],['chickpeas',165],['couscous',175],['bulgur',140],
   ['butter',227],['vegan butter',227],['margarine',227],['coconut oil',218],['olive oil',216],['oil',218],['tahini',250],['peanut butter',260],['almond butter',250],['nut butter',255],
   ['water',240],['oat milk',240],['soy milk',245],['almond milk',240],['coconut milk',240],['coconut cream',240],['milk',245],['oat cream',240],['cream',240],['yogurt',245],['yoghurt',245],['cream cheese',230],['silken tofu',250],['tofu',250],['aquafaba',240],['vinegar',240],['soy sauce',255],['tamari',255],['lemon juice',240],['juice',240],['vanilla extract',208],['vanilla',208],
@@ -130,10 +130,11 @@ function displayIng(ing, recipe, factor, yair, settings){
   const baking = isBakingRecipe(recipe);
   const nameL = name.toLowerCase();
   if (qty == null) return { text: unit ? unit + ' ' + name : name, amt:'' };
-  if (yair && baking && settings.bakingGrams && CUPS[unit] !== undefined) {
+  const isJuice = /juice|zest|extract|essence/.test(nameL);
+  if (yair && baking && settings.bakingGrams && CUPS[unit] !== undefined && !isJuice) {
     const spoon = unit === 'tsp' || unit === 'tbsp';
     const origTbsp = spoon ? (unit === 'tbsp' ? ing.qty : ing.qty/3) : 99;
-    const forceGrams = /yeast/.test(nameL) || (/salt/.test(nameL) && (recipe.cats||[]).includes('Bread'));
+    const forceGrams = (/yeast/.test(nameL) && !/nutritional/.test(nameL)) || (/salt/.test(nameL) && (recipe.cats||[]).includes('Bread'));
     if (spoon && origTbsp < 2 && !forceGrams) return { text:name, amt: fmtQty(Math.round(qty*4)/4) + ' ' + unit };
     const d = densityFor(name);
     const g = roundGrams(qty * CUPS[unit] * d.g, settings.rounding);
@@ -160,12 +161,23 @@ function convertTempsInText(t, toC){
 /* ---------- text parser (rule based) ---------- */
 const UNIT_RX = /^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s+(?:of\s+)?(.+)$/i;
 const UNIT_NORM = { gram:'g', grams:'g', litre:'l', liter:'l', litres:'l', liters:'l', teaspoon:'tsp', teaspoons:'tsp', tablespoon:'tbsp', tablespoons:'tbsp', cups:'cup', ounce:'oz', ounces:'oz', lbs:'lb', pound:'lb', pounds:'lb', cloves:'clove', cans:'can', tin:'can', tins:'can', pieces:'piece', slices:'piece', slice:'piece', handful:'', bunch:'' };
+function cleanLine(l){ return l.replace(/\*{1,3}note\s*\d+\*{0,3}/gi,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\*\*|__/g,'').replace(/\s+/g,' ').trim(); }
+function parseAmount(str){ const m = str.trim().match(/^(\d[\d\s\/.,¼½¾⅓⅔⅛-]*|[¼½¾⅓⅔⅛])\s*(kg|g|grams?|ml|l|litres?|liters?|tsp|teaspoons?|tbsp|tablespoons?|cups?|oz|ounces?|lbs?|pounds?|pinch|cloves?|cans?|tins?|pieces?|slices?|handful|bunch)?\.?\s*$/i); if (!m) return null; let unit = (m[2]||'').toLowerCase(); unit = UNIT_NORM[unit] !== undefined ? UNIT_NORM[unit] : unit; return { qty: parseQty(m[1]), unit }; }
 function parseIngLine(line){
-  line = line.replace(/^[-•*·\d]+[.)]?\s+(?=\D)/, '').trim();
+  line = cleanLine(line).replace(/^[-•*·▢]+\s*/, '').replace(/^\d+[.)]\s+(?=\D)/, '').trim();
+  let alt = null;
+  // "400 g (14 oz) tofu" or "220 g (1 cup) sugar" → keep first, remember the bracketed one
+  line = line.replace(/^([^()]*?\d[^()]*?)\s*\(([^()]*?)\)/, (m0, a, b) => { const pa = parseAmount(b); if (pa && pa.qty != null) { alt = pa; return a + ' '; } return m0; });
+  // "8 g / 4 tsp ground flax" → keep first
+  line = line.replace(/^(\S[^\/]*?\d[^\/]*?)\s*\/\s*([^\/]+?)(?=\s+[a-zA-Z(])/, (m0, a, b) => { const pa = parseAmount(b); const pb = parseAmount(a); if (pa && pb && pb.qty != null) { alt = pa; return a + ' '; } return m0; });
+  const jm = line.match(/^juice\s+(?:and\s+zest\s+)?of\s+(\d+|½|¼|a|an|one|half a)\s+(lemons?|limes?|oranges?)/i);
+  if (jm) { const q = /^(a|an|one)$/i.test(jm[1]) ? 1 : /half/i.test(jm[1]) ? 0.5 : parseQty(jm[1]); return { qty:q, unit:'', name: jm[2].replace(/s$/,'') + ' juice' + (line.slice(jm[0].length).trim() ? ' ' + line.slice(jm[0].length).trim() : '') }; }
   const m = line.match(UNIT_RX);
   if (!m) return { qty:null, unit:'', name:line };
   let unit = (m[2]||'').toLowerCase(); unit = UNIT_NORM[unit] !== undefined ? UNIT_NORM[unit] : unit;
-  return { qty: parseQty(m[1]), unit, name: m[3].trim() };
+  let out = { qty: parseQty(m[1]), unit, name: m[3].replace(/^[,:\s]+/, '').trim() };
+  if (alt) { const metric = u => /^(g|kg|ml|l)$/.test(u); if (metric(alt.unit) && !metric(unit)) { const sw = { qty: out.qty, unit: out.unit }; out.qty = alt.qty; out.unit = alt.unit; alt = sw; } out.alt = alt; }
+  return out;
 }
 function parseText(text){
   const lines = text.split(/\r?\n/).map(l => l.trim());
@@ -174,9 +186,11 @@ function parseText(text){
   const url = text.match(/https?:\/\/\S+/); if (url) out.source = url[0];
   for (let l of lines) {
     if (!l) continue;
-    const lo = l.toLowerCase().replace(/[:*#_]/g,'').trim();
+    const lo = l.toLowerCase().replace(/[:*#_▢\-•]/g,'').trim();
     if (/^(ingredients?)$/.test(lo)) { mode = 'ing'; continue; }
-    if (/^(method|instructions?|directions?|steps?|preparation)$/.test(lo)) { mode = 'steps'; continue; }
+    if (/^(method|instructions?|directions?|steps?|preparation|how to make it)$/.test(lo)) { mode = 'steps'; continue; }
+    if (/^(nutrition(al)? info(rmation)?|nutrition|you may also like|share|reviews?|comments?)$/.test(lo)) { mode = 'end'; continue; }
+    if (mode === 'end') continue;
     if (/^(notes?|tips?)$/.test(lo)) { mode = 'notes'; continue; }
     if (mode === 'start') { if (!out.title && !/^https?:/.test(l)) { out.title = l.replace(/^#+\s*/, '').replace(/\*/g,''); mode = 'auto'; } continue; }
     if (/^https?:/.test(l)) continue;
@@ -253,7 +267,7 @@ function renderLibrary(v){
   const tabs = ['All', ...CATEGORIES, 'To try', 'Favourite'];
   v.innerHTML = '<div class="top"><h1>Recipes</h1><button class="rbtn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button></div>'
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
-    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide' + (r.photo ? '' : ' noimg') + '" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '">' : '<div class="tile big" style="--tb:' + ICONS[r.icon].ti + ';--ti:' + ICONS[r.icon].tb + '">' + svgIcon(r.icon) + '</div>') + '<div class="cap"><h3>' + esc(r.title) + '</h3></div></button>').join('') + '</div>' : '')
+    + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide' + (r.photo ? '' : ' noimg') + '" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.parentNode.classList.add(\'noimg\');this.style.display=\'none\'">' : '<div class="tile big" style="--tb:' + ICONS[r.icon].ti + ';--ti:' + ICONS[r.icon].tb + '">' + svgIcon(r.icon) + '</div>') + '<div class="cap"><h3>' + esc(r.title) + '</h3></div></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
     + (list.length ? list.map(r => '<button class="row" data-id="' + r.id + '"><div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button>').join('')
        : '<div class="empty"><b>' + (S.recipes.length ? 'Nothing here' : 'No recipes yet') + '</b>' + (S.recipes.length ? 'Try another tab or search.' : 'Tap Add to bring one in, or load the sample set from Settings.') + '</div>');
@@ -286,7 +300,7 @@ function renderRecipe(v, id){
   const ings = (r.ings||[]).map(i => displayIng(i, r, view.factor, view.yair, S.settings));
   v.innerHTML = '<div class="rtop" style="' + tileStyle(r.icon) + '">'
     + '<button class="rbtn b1" id="bk">‹</button><button class="rbtn b2" id="fav">' + ((r.tags||[]).includes('Favourite') ? '♥' : '♡') + '</button><button class="edit" id="ed">Edit</button>'
-    + '<div class="photo">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '">' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div>'
+    + '<div class="photo">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div>'
     + '<div class="tile badge">' + svgIcon(r.icon) + '</div></div>'
     + '<div class="r"><h1>' + esc(r.title) + '</h1>'
     + '<div class="meta">' + [r.time, r.servings ? 'serves ' + r.servings : '', r.rating ? '<b>' + r.rating + '</b> / 10' : '', catLabel(r).toLowerCase(), (r.tags||[]).filter(t => t !== 'Favourite').join(', ').toLowerCase()].filter(Boolean).join(' · ') + '</div>'
@@ -294,9 +308,9 @@ function renderRecipe(v, id){
     + '<div class="seg"><button class="' + (view.yair ? '' : 'on') + '" data-mode="orig">Original</button><button class="' + (view.yair ? 'on' : '') + '" data-mode="yair">Yair mode</button></div>'
     + '<div class="seg" style="margin-top:8px"><button class="' + (view.tab === 'ing' ? 'on' : '') + '" data-tab="ing">Ingredients</button><button class="' + (view.tab === 'steps' ? 'on' : '') + '" data-tab="steps">Method</button><button class="' + (view.tab === 'notes' ? 'on' : '') + '" data-tab="notes">Notes</button></div>'
     + (view.tab === 'ing' ? '<div class="serv"><span>' + (view.yair && isBakingRecipe(r) ? 'Grams where it matters' : 'As written') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><span>' + serv + '</span><button id="sp">+</button>' : '<button id="sm">−</button><span>' + view.factor + '×</button><button id="sp">+</button>') + '</span></div>'
-        + '<div class="ing">' + ings.map(i => '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' : '')
+        + '<div class="ing">' + ings.map(i => '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
     + (view.tab === 'steps' ? '<div style="margin-top:8px">' + (r.steps||[]).map((s, i) => { const d = view.done[i]; const dur = (r.stepTimers && r.stepTimers[i] != null) ? r.stepTimers[i] : detectDuration(s); const run = S.timers.find(t => t.recipeId === r.id && t.step === i); return '<div class="step' + (d ? ' done' : '') + '"><i data-done="' + i + '">' + (d ? '✓' : i+1) + '</i><div class="txt">' + esc(convertTempsInText(s, view.yair && S.settings.tempC)) + (run ? '<br><button class="chip run" data-stop="' + run.id + '">▮▮ <b>' + fmtDur((run.end - Date.now())/1000) + '</b> · stop</button>' : dur ? '<br><button class="chip" data-timer="' + i + '" data-secs="' + dur + '">▷ ' + fmtDurShort(dur) + '</button>' : '') + '</div></div>'; }).join('') + ((r.steps||[]).length ? '' : '<div class="empty">No method yet — tap Edit.</div>') + '</div>' : '')
-    + (view.tab === 'notes' ? '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
+    + (view.tab === 'notes' ? (r.sourceNotes ? '<div class="lbl">From the source</div><div class="notes">' + esc(r.sourceNotes) + '</div>' : '') + '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
         + (r.oven || r.tin ? '<div class="lbl">Oven and tin</div><div class="notes">' + esc([r.oven ? convertTempsInText(r.oven, view.yair && S.settings.tempC) : '', r.tin].filter(Boolean).join(' · ')) + '</div>' : '')
         + '<div class="lbl">Rating</div><div class="rate">' + [1,2,3,4,5,6,7,8,9,10].map(n => '<button class="' + (r.rating === n ? 'on' : '') + '" data-rate="' + n + '">' + n + '</button>').join('') + '</div>'
         + '<div class="lbl">Source</div><div class="notes">' + (r.source ? '<a href="' + esc(r.source) + '" target="_blank" rel="noopener" style="word-break:break-all">' + esc(r.source) + '</a>' : esc(r.sourceName || 'Your own recipe')) + '</div>'
@@ -316,6 +330,14 @@ function renderRecipe(v, id){
   const del = v.querySelector('#del'); if (del) del.onclick = async () => { if (!confirm('Delete "' + r.title + '"? It goes to the bin for 30 days.')) return; r.deleted = Date.now(); await saveRecipe(r); toast('Moved to bin'); go('library', null, true); };
 }
 
+function nutritionBlock(r, factor){
+  const n = r.nutrition; if (!n || !Object.keys(n).length) return '';
+  const keys = [['calories','kcal',''],['fat','Fat','g'],['saturates','Saturates','g'],['carbs','Carbs','g'],['sugars','Sugars','g'],['fibre','Fibre','g'],['protein','Protein','g']];
+  const cells = keys.filter(k => n[k[0]] != null).map(k => '<div><small>' + k[1] + '</small><b>' + Math.round(n[k[0]]) + (k[2] ? ' ' + k[2] : '') + '</b></div>').join('');
+  const batch = r.servings ? Math.round(r.servings*factor*10)/10 : null;
+  return '<div class="lbl" style="margin-top:18px">Per serving' + (n.per ? ' · ' + esc(n.per) : '') + (batch ? ' · batch of ' + batch : '') + '</div><div class="nut">' + cells + '</div><div style="font-size:11px;color:var(--mute);margin-top:6px">Source figures for the recipe as published; they don\'t recalculate when you change ingredients.</div>';
+}
+
 /* ---------- timers ---------- */
 function startTimer(r, step, secs){
   const label = (r.steps[step] || '').slice(0, 40);
@@ -333,15 +355,20 @@ function beep(){
 function renderPin(){
   const p = $('#pin');
   if (!S.timers.length) { p.innerHTML = ''; return; }
-  p.innerHTML = S.timers.map(t => { const left = (t.end - Date.now())/1000; return '<button class="tm' + (left <= 0 ? ' over' : '') + '" style="' + tileStyle(t.icon) + '" data-open="' + t.recipeId + '" data-step="' + t.step + '"><div class="tile">' + svgIcon(t.icon) + '</div><div class="what">' + esc(t.title) + '<small>Step ' + (t.step+1) + (t.label ? ' · ' + esc(t.label) : '') + '</small></div><b>' + (left <= 0 ? 'Done' : fmtDur(left)) + '</b><span class="x" data-x="' + t.id + '">✕</span></button>'; }).join('');
-  p.querySelectorAll('[data-open]').forEach(b => b.onclick = e => { if (e.target.dataset.x) { stopTimer(e.target.dataset.x); return; } view.id = null; go('recipe', { id: b.dataset.open }); view.tab = 'steps'; render(); });
+  const cur = S.route.name === 'recipe' ? S.route.id : null;
+  const full = S.timers.filter(t => t.recipeId === cur), chips = S.timers.filter(t => t.recipeId !== cur);
+  const row = t => { const left = (t.end - Date.now())/1000; return '<button class="tm' + (left <= 0 ? ' over' : '') + '" style="' + tileStyle(t.icon) + '" data-open="' + t.recipeId + '" data-tid="' + t.id + '"><div class="tile">' + svgIcon(t.icon) + '</div><div class="what">' + esc(t.title) + '<small>Step ' + (t.step+1) + (t.label ? ' · ' + esc(t.label) : '') + '</small></div><b>' + (left <= 0 ? 'Done' : fmtDur(left)) + '</b><span class="x" data-x="' + t.id + '">✕</span></button>'; };
+  const chip = t => { const left = (t.end - Date.now())/1000; return '<button class="tc' + (left <= 0 ? ' over' : '') + '" style="' + tileStyle(t.icon) + '" data-open="' + t.recipeId + '" data-tid="' + t.id + '"><div class="tile">' + svgIcon(t.icon) + '</div><b>' + (left <= 0 ? 'Done' : fmtDur(left)) + '</b></button>'; };
+  p.innerHTML = (chips.length ? '<div class="tcs">' + chips.map(chip).join('') + '</div>' : '') + full.map(row).join('');
+  p.querySelectorAll('[data-open]').forEach(b => b.onclick = e => { if (e.target.dataset.x) { stopTimer(e.target.dataset.x); return; } const t = S.timers.find(x => x.id === b.dataset.tid); if (b.classList.contains('tc') || (t && t.end <= Date.now() && !b.classList.contains('tc'))) { if (t && t.end <= Date.now() && b.classList.contains('tm')) { stopTimer(t.id); return; } } view.id = null; go('recipe', { id: b.dataset.open }); view.tab = 'steps'; render(); });
 }
 function tick(){
   if (!S.timers.length) return;
   let changed = false;
   S.timers.forEach(t => { if (!t.fired && t.end <= Date.now()) { t.fired = true; changed = true; beep(); notify(t); } });
   if (changed) saveTimers();
-  renderPin();
+  if (changed) renderPin();
+  document.querySelectorAll('.tc,.tm').forEach(b => { const t = S.timers.find(x => x.id === b.dataset.tid); const bb = b.querySelector('b'); if (t && bb) { bb.textContent = t.end > Date.now() ? fmtDur((t.end - Date.now())/1000) : 'Done'; b.classList.toggle('over', t.end <= Date.now()); } });
   document.querySelectorAll('[data-stop]').forEach(b => { const t = S.timers.find(x => x.id === b.dataset.stop); const bb = b.querySelector('b'); if (t && bb) bb.textContent = t.end > Date.now() ? fmtDur((t.end - Date.now())/1000) : 'Done'; });
 }
 setInterval(tick, 1000);
@@ -365,17 +392,90 @@ function openAddSheet(){
   sh.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
     const body = sh.querySelector('#addbody');
     if (b.dataset.add === 'scratch') { closeSheet(); go('edit', { id: null, draft: newRecipe({}) }); return; }
-    if (b.dataset.add === 'link') body.innerHTML = '<div class="lbl">Link</div><input class="fld" id="addUrl" placeholder="https://…" inputmode="url"><div class="lbl">Recipe text (optional — copy it from the page)</div><textarea class="fld" id="addText" placeholder="Title\n\nIngredients\n500 g bread flour\n…\n\nMethod\n1. …"></textarea><div style="margin-top:12px"><button class="primary" id="addGo">Continue</button></div>';
+    if (b.dataset.add === 'link') body.innerHTML = '<div class="lbl">Link</div><input class="fld" id="addUrl" placeholder="https://…" inputmode="url"><div style="margin-top:12px"><button class="primary" id="addGo">Fetch recipe</button></div><div id="addStatus" style="font-size:12px;color:var(--mute);margin-top:8px"></div><details style="margin-top:12px;font-size:12px;color:var(--mute)"><summary>Or paste the recipe text as well</summary><textarea class="fld" id="addText" style="margin-top:8px" placeholder="Title\n\nIngredients\n500 g bread flour\n…\n\nMethod\n1. …"></textarea></details>';
     else body.innerHTML = '<div class="lbl">Recipe text</div><textarea class="fld" id="addText" style="min-height:160px" placeholder="Title on the first line, then ingredients (one per line), then the method. Headings like Ingredients / Method help but aren\'t needed."></textarea><div style="margin-top:12px"><button class="primary" id="addGo">Continue</button></div>';
-    body.querySelector('#addGo').onclick = () => {
-      const url = (body.querySelector('#addUrl') || {}).value || '';
+    body.querySelector('#addGo').onclick = async () => {
+      const url = ((body.querySelector('#addUrl') || {}).value || '').trim();
       const text = body.querySelector('#addText').value || '';
-      const parsed = parseText(text);
-      const draft = newRecipe({ title: parsed.title || (url ? hostOf(url) : ''), source: url.trim() || parsed.source, ings: parsed.ings, steps: parsed.steps, notes: parsed.notes });
+      const status = body.querySelector('#addStatus');
+      let draft = null;
+      if (url && !text.trim()) {
+        const btn = body.querySelector('#addGo'); btn.textContent = 'Fetching…'; btn.disabled = true;
+        try { draft = await importFromUrl(url, msg => { if (status) status.textContent = msg; }); }
+        catch(e) { draft = null; }
+        btn.textContent = 'Fetch recipe'; btn.disabled = false;
+        if (!draft) { if (status) status.textContent = 'Couldn\'t read that page automatically. Paste the recipe text below and continue.'; body.querySelector('details').open = true; return; }
+      } else {
+        const parsed = parseText(text);
+        draft = newRecipe({ title: parsed.title || (url ? hostOf(url) : ''), source: url || parsed.source, ings: parsed.ings, steps: parsed.steps, notes: parsed.notes });
+      }
       closeSheet(); go('edit', { id: null, draft });
+      if (draft.photo && /^https?:/.test(draft.photo)) cachePhoto(draft);
     };
     setTimeout(() => { const f = body.querySelector('input,textarea'); f && f.focus(); }, 50);
   });
+}
+/* ---------- URL import: proxies → JSON-LD → text fallback ---------- */
+const PROXIES = [u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), u => 'https://corsproxy.io/?' + encodeURIComponent(u), u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)];
+async function fetchVia(url, asText){
+  let lastErr;
+  if (url.startsWith(location.origin)) { const res = await fetch(url); return asText ? await res.text() : await res.blob(); }
+  for (const p of PROXIES) { try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000); const res = await fetch(p(url), { signal: ctl.signal }); clearTimeout(t); if (!res.ok) throw new Error(res.status); return asText ? await res.text() : await res.blob(); } catch(e) { lastErr = e; } }
+  throw lastErr || new Error('fetch failed');
+}
+function isoDur(d){ if (!d || typeof d !== 'string') return ''; const m = d.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/i); if (!m) return ''; const h = (Number(m[1]||0)*24) + Number(m[2]||0), mi = Number(m[3]||0); return h ? h + ' h' + (mi ? ' ' + mi : '') : mi ? mi + ' min' : ''; }
+function findRecipeLD(node){ if (!node) return null; if (Array.isArray(node)) { for (const n of node) { const r = findRecipeLD(n); if (r) return r; } return null; } if (typeof node !== 'object') return null; const t = node['@type']; if (t && (t === 'Recipe' || (Array.isArray(t) && t.includes('Recipe')))) return node; if (node['@graph']) return findRecipeLD(node['@graph']); if (node.mainEntity) return findRecipeLD(node.mainEntity); return null; }
+function ldText(x){ if (!x) return ''; if (typeof x === 'string') return x; if (Array.isArray(x)) return x.map(ldText).join(' '); return x.text || x.name || ''; }
+function ldSteps(ins){ const out = []; const walk = n => { if (!n) return; if (typeof n === 'string') { n.split(/\n+/).forEach(s => s.trim() && out.push(s.trim())); return; } if (Array.isArray(n)) { n.forEach(walk); return; } if (n['@type'] === 'HowToSection' && n.itemListElement) { walk(n.itemListElement); return; } if (n.text) out.push(String(n.text).trim()); else if (n.itemListElement) walk(n.itemListElement); }; walk(ins); return out.map(s => cleanLine(s.replace(/<[^>]+>/g, ''))).filter(Boolean); }
+function ldImage(x){ if (!x) return []; if (typeof x === 'string') return [x]; if (Array.isArray(x)) return x.flatMap(ldImage); if (x.url) return [x.url]; if (x.contentUrl) return [x.contentUrl]; return []; }
+function ldNutrition(n){ if (!n || typeof n !== 'object') return null; const num = v => { if (v == null) return null; const m = String(v).match(/[\d.]+/); return m ? Number(m[0]) : null; }; const out = { calories: num(n.calories), fat: num(n.fatContent), saturates: num(n.saturatedFatContent), carbs: num(n.carbohydrateContent), sugars: num(n.sugarContent), fibre: num(n.fiberContent), protein: num(n.proteinContent), per: n.servingSize ? String(n.servingSize) : '' }; Object.keys(out).forEach(k => (out[k] == null || out[k] === '') && delete out[k]); return Object.keys(out).filter(k => k !== 'per').length ? out : null; }
+function yieldNum(y){ if (!y) return null; const m = ldText(Array.isArray(y) ? y[0] : y).match(/\d+(?:[.,]\d+)?/); return m ? parseFloat(m[0].replace(',', '.')) : null; }
+async function importFromUrl(url, onStatus){
+  onStatus && onStatus('Reading the page…');
+  let html = null;
+  try { html = await fetchVia(url, true); } catch(e) { html = null; }
+  let draft = null;
+  if (html && /<html|<body|<script/i.test(html)) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    let ld = null;
+    doc.querySelectorAll('script[type="application/ld+json"]').forEach(sc => { if (ld) return; try { ld = findRecipeLD(JSON.parse(sc.textContent)); } catch(e) {} });
+    const og = doc.querySelector('meta[property="og:image"]'); const ogImg = og ? og.getAttribute('content') : null;
+    const site = doc.querySelector('meta[property="og:site_name"]'); const siteName = site ? site.getAttribute('content') : '';
+    const bodyImgs = [].slice.call(doc.querySelectorAll('article img, .wprm-recipe img, .entry-content img, main img')).map(i => i.getAttribute('data-lazy-src') || i.getAttribute('data-src') || i.getAttribute('src') || '').filter(u => /^https?:/.test(u) && !/logo|icon|avatar|gravatar|placeholder|\.svg|pinterest|button|badge/i.test(u));
+    let notes = '';
+    const notesEl = doc.querySelector('.wprm-recipe-notes, .tasty-recipes-notes, .mv-create-notes, .recipe-notes, [class*="recipe-notes"], [class*="recipe__notes"]');
+    if (notesEl) notes = notesEl.textContent.replace(/\s*\n\s*/g, '\n').replace(/^\s*notes?\s*/i, '').trim();
+    if (!notes) { const heads = [].slice.call(doc.querySelectorAll('h2,h3,h4,p,div,span')).filter(h => /^\s*notes?\s*$/i.test(h.textContent) && h.children.length === 0); if (heads.length) { let n = heads[0].nextElementSibling; const parts = []; let guard = 0; while (n && guard++ < 6 && !/^H[1-4]$/.test(n.tagName) && !/nutrition|share/i.test(n.textContent.slice(0, 30))) { parts.push(n.textContent.trim()); n = n.nextElementSibling; } notes = parts.filter(Boolean).join('\n'); } }
+    if (ld) {
+      const ings = (ld.recipeIngredient || ld.ingredients || []).map(x => parseIngLine(ldText(x).replace(/<[^>]+>/g, '')));
+      const steps = ldSteps(ld.recipeInstructions);
+      const imgs = [...ldImage(ld.image), ogImg, ...bodyImgs].filter(Boolean);
+      const uniq = imgs.filter((u, i) => imgs.indexOf(u) === i);
+      const kw = (ldText(ld.keywords) + ' ' + ldText(ld.recipeCategory) + ' ' + ldText(ld.recipeCuisine)).toLowerCase();
+      const cats = CATEGORIES.filter(c => kw.includes(c.toLowerCase().replace(/s$/, '')));
+      const tags = CUISINES.filter(c => kw.includes(c.toLowerCase()));
+      draft = newRecipe({ title: cleanLine(ldText(ld.name)).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || (ld.author ? ldText(ld.author) : hostOf(url)), ings, steps, notes:'', sourceNotes: notes, servings: yieldNum(ld.recipeYield), time: isoDur(ld.totalTime) || [isoDur(ld.prepTime), isoDur(ld.cookTime)].filter(Boolean).join(' + '), nutrition: ldNutrition(ld.nutrition), photo: uniq[0] || null, photoSrc: uniq[0] || null, sourceImages: uniq.slice(0, 8), cats, tags });
+    } else {
+      const title = (doc.querySelector('meta[property="og:title"]') || {}).content || doc.title || '';
+      const text = (doc.body ? doc.body.innerText || doc.body.textContent : '') || '';
+      const parsed = parseText(text);
+      if (parsed.ings.length || parsed.steps.length) draft = newRecipe({ title: cleanLine(title).replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: siteName || hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes, photo: ogImg, photoSrc: ogImg, sourceImages: [ogImg, ...bodyImgs].filter(Boolean).slice(0, 8) });
+    }
+  }
+  if (!draft) {
+    onStatus && onStatus('Trying a text reader…');
+    try {
+      const txt = await (await fetch('https://r.jina.ai/' + url, { headers: { 'X-Return-Format': 'text' } })).text();
+      const parsed = parseText(txt.replace(/^Title:\s*/m, '').replace(/^URL Source:.*$/m, ''));
+      if (parsed.ings.length) draft = newRecipe({ title: parsed.title.replace(/\s*[-|–]\s*[^-|–]+$/, ''), source: url, sourceName: hostOf(url), ings: parsed.ings, steps: parsed.steps, sourceNotes: parsed.notes });
+    } catch(e) {}
+  }
+  if (draft) { if (!draft.title) draft.title = hostOf(url); draft.icon = guessIcon(draft.title, draft.cats); onStatus && onStatus('Got it.'); }
+  return draft;
+}
+async function cachePhoto(r){
+  if (!r.photo || !/^https?:/.test(r.photo)) return;
+  try { const blob = await fetchVia(r.photo, false); if (!blob || !/^image\//.test(blob.type)) return; const data = await shrinkImage(blob, 900); if (r.photoSrc === r.photo || /^https?:/.test(r.photo)) { r.photo = data; if (S.recipes.find(x => x.id === r.id)) await saveRecipe(r); } } catch(e) {}
 }
 function closeSheet(){ const d = $('#dim'), s = $('#sheet'); d && d.remove(); s && s.remove(); }
 function newRecipe(o){
@@ -394,7 +494,8 @@ function renderEdit(v, id, draft){
   v.innerHTML = '<div class="hd"><button class="rbtn" id="cancel">‹</button><h1>' + (orig ? 'Edit recipe' : 'New recipe') + '</h1><button class="pill" id="save">Save</button></div><div class="p">'
     + '<div class="lbl">Title</div><input class="fld" id="fTitle" value="' + esc(r.title) + '" placeholder="Recipe name">'
     + '<div class="lbl">Photo — drag to position, slider to zoom</div><div class="crop" id="crop">' + (r.photo ? '<img id="cropImg" src="' + r.photo + '" style="' + photoStyle(r) + '">' : '<div class="ph">No photo yet</div>') + '</div>'
-    + '<div class="cropctl"><input type="range" id="zoom" min="1" max="3" step="0.02" value="' + (r.crop.s||1) + '"' + (r.photo ? '' : ' disabled') + '><label class="pill ghost" style="cursor:pointer">Choose photo<input type="file" id="fPhoto" accept="image/*" style="display:none"></label>' + (r.photo ? '<button class="pill ghost" id="rmPhoto">Remove</button>' : '') + '</div>'
+    + '<div class="cropctl"><input type="range" id="zoom" min="1" max="3" step="0.02" value="' + (r.crop.s||1) + '"' + (r.photo ? '' : ' disabled') + '><label class="pill ghost" style="cursor:pointer">My photo<input type="file" id="fPhoto" accept="image/*" style="display:none"></label>' + (r.photo ? '<button class="pill ghost" id="rmPhoto">Remove</button>' : '') + '</div>'
+    + ((r.sourceImages||[]).length ? '<div class="lbl">From the recipe page</div><div class="thumbs">' + r.sourceImages.slice(0, 8).map((u, i) => '<button class="thumb' + (r.photo === u || r.photoSrc === u ? ' sel' : '') + '" data-src="' + i + '"><img src="' + esc(u) + '" alt="" loading="lazy"></button>').join('') + '</div>' : '')
     + '<div class="lbl">Icon' + (iconAuto ? ' (chosen from the title — tap to override)' : '') + '</div><div class="icons">' + ICON_NAMES.map(n => '<button class="tile' + (r.icon === n ? ' sel' : '') + '" style="' + tileStyle(n) + '" data-icon="' + n + '" aria-label="' + n + '">' + svgIcon(n) + '</button>').join('') + '</div>'
     + '<div class="lbl">Categories</div><div class="chips" id="cats">' + CATEGORIES.map(c => '<button class="' + ((r.cats||[]).includes(c) ? 'on' : '') + '" data-cat="' + c + '">' + c + '</button>').join('') + '</div>'
     + '<div class="lbl">Cuisine and tags</div><div class="chips" id="tags">' + [...CUISINES, ...TAGS].map(c => '<button class="' + ((r.tags||[]).includes(c) ? 'on' : '') + '" data-tag="' + c + '">' + c + '</button>').join('') + '</div>'
@@ -441,7 +542,8 @@ function renderEdit(v, id, draft){
   v.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => { r.rating = r.rating === Number(b.dataset.rate) ? null : Number(b.dataset.rate); v.querySelectorAll('[data-rate]').forEach(x => x.classList.toggle('on', Number(x.dataset.rate) === r.rating)); });
   // photo
   v.querySelector('#fPhoto').onchange = async e => { const f = e.target.files[0]; if (!f) return; r.photo = await shrinkImage(f, 900); r.crop = { x:0, y:0, s:1 }; S.route.draft = r; renderEdit(v, id, r); };
-  const rm = v.querySelector('#rmPhoto'); if (rm) rm.onclick = () => { r.photo = null; renderEdit(v, id, r); };
+  const rm = v.querySelector('#rmPhoto'); if (rm) rm.onclick = () => { r.photo = null; r.photoSrc = null; renderEdit(v, id, r); };
+  v.querySelectorAll('[data-src]').forEach(b => b.onclick = async () => { const u = r.sourceImages[Number(b.dataset.src)]; r.photo = u; r.photoSrc = u; r.crop = { x:0, y:0, s:1 }; renderEdit(v, id, r); cachePhoto(r).then(() => { if (S.route.name === 'edit' && S.route.draft === r) { const im = $('#cropImg'); if (im && r.photo) im.src = r.photo; } }); });
   const crop = v.querySelector('#crop'), img = v.querySelector('#cropImg'), zoom = v.querySelector('#zoom');
   if (img) {
     zoom.oninput = () => { r.crop.s = Number(zoom.value); img.style.cssText = photoStyle(r); };
@@ -469,7 +571,7 @@ function shrinkImage(file, max){
 /* ---------- shopping ---------- */
 const AISLES = [['Fresh',['onion','garlic','ginger','lemon','lime','tomato','pepper','chilli','chili','herb','basil','coriander','parsley','mint','spinach','kale','lettuce','cucumber','carrot','potato','sweet potato','courgette','zucchini','aubergine','eggplant','mushroom','broccoli','cauliflower','cabbage','leek','spring onion','scallion','avocado','apple','banana','berries','mango','fruit','celery','fennel','beetroot','pumpkin','squash','corn','peas','beans','greens']],
   ['Chilled',['tofu','tempeh','seitan','yogurt','yoghurt','cream cheese','cream','milk','butter','cheese','kefir','hummus','pastry','dough']],
-  ['Baking and dry',['flour','sugar','yeast','baking','bicarbonate','cocoa','cacao','chocolate','vanilla','oats','cornflour','cornstarch','salt','syrup','honey','nuts','almond','cashew','walnut','pecan','seed','date','raisin','coconut','rice','pasta','noodle','lentil','chickpea','bean','quinoa','couscous','bulgur','polenta','semolina','breadcrumb','panko','stock','bouillon','spice','flakes','dried','ground','cumin','paprika','turmeric','cinnamon','oregano','curry','pepper','oil','vinegar','soy','tamari','miso','tahini','peanut butter','maple','agave','extract','chia','flax']],
+  ['Baking and dry',['flour','sugar','yeast','baking','bicarbonate','cocoa','cacao','chocolate','vanilla','oats','cornflour','cornstarch','salt','syrup','honey','nuts','almond','cashew','walnut','pecan','pistachio','hazelnut','seed','date','raisin','coconut','rice','pasta','noodle','lentil','chickpea','bean','quinoa','couscous','bulgur','polenta','semolina','breadcrumb','panko','stock','bouillon','spice','flakes','dried','ground','cumin','paprika','turmeric','cinnamon','oregano','curry','pepper','oil','vinegar','soy','tamari','miso','tahini','peanut butter','maple','agave','extract','chia','flax']],
   ['Tins and jars',['can','tin','jar','passata','tomato paste','tomato purée','coconut milk','coconut cream','olives','capers','sun-dried','pickled','chipotle','harissa','sriracha','ketchup','mustard','mayo']],
   ['Frozen',['frozen','ice']]];
 function aisleFor(name){ const n = name.toLowerCase(); if (/frozen|\bice\b/.test(n)) return 'Frozen'; for (const a of ['Tins and jars','Baking and dry','Chilled','Fresh']) { const kws = AISLES.find(x => x[0] === a)[1]; if (kws.some(k => n.includes(k))) return a; } return 'Other'; }
@@ -482,6 +584,14 @@ function buildList(){
     const cfg = sel[id];
     for (const ing of (r.ings||[])) {
       if (!(ing.name||'').trim() || /^(water|tap water|ice)\b/.test(normName(ing.name))) continue;
+      const jm = (ing.name||'').toLowerCase().match(/\b(lemon|lime|orange)s?\b/);
+      if (jm && /juice|zest/.test(ing.name.toLowerCase()) && ing.qty != null) {
+        const fruit = jm[1]; const per = fruit === 'lemon' ? 45 : fruit === 'lime' ? 30 : 80; const u = ing.unit;
+        const ml = u === 'tbsp' ? ing.qty*15 : u === 'tsp' ? ing.qty*5 : u === 'cup' ? ing.qty*240 : u === 'ml' ? ing.qty : u === '' ? ing.qty*per : null;
+        const count = ml == null ? ing.qty*cfg.mult : Math.max(0.5, Math.ceil(ml*cfg.mult/per*2)/2);
+        const k = fruit + 's|fruit'; if (!merged[k]) merged[k] = { name: fruit + 's', key:k, g:0, ml:0, other:0, unit:'', from:[], text:[], fruit:true };
+        merged[k].other += count; if (!merged[k].from.includes(r.title)) merged[k].from.push(r.title); continue;
+      }
       const d = displayIng(ing, r, cfg.mult, cfg.yair, S.settings);
       // canonicalise to grams / ml where we can, otherwise keep the display amount
       let key = normName(ing.name), base = null, unit = ing.unit || '';
@@ -490,7 +600,7 @@ function buildList(){
         if (unit === 'g' || unit === 'kg') base = { g: unit === 'g' ? q : q*1000 };
         else if (unit === 'oz' || unit === 'lb') base = { g: q * (unit === 'oz' ? 28.35 : 453.6) };
         else if (unit === 'ml' || unit === 'l') base = { ml: unit === 'ml' ? q : q*1000 };
-        else if (CUPS[unit] !== undefined && (cfg.yair && isBakingRecipe(r))) base = { g: q * CUPS[unit] * densityFor(ing.name).g };
+        else if (CUPS[unit] !== undefined && (cfg.yair && isBakingRecipe(r)) && !/juice|zest|extract|essence/.test(ing.name.toLowerCase()) && !((unit === 'tsp' || unit === 'tbsp') && (unit === 'tbsp' ? ing.qty : ing.qty/3) < 2 && !((/yeast/.test(ing.name.toLowerCase()) && !/nutritional/.test(ing.name.toLowerCase())) || (/salt/.test(ing.name.toLowerCase()) && (r.cats||[]).includes('Bread'))))) base = { g: q * CUPS[unit] * densityFor(ing.name).g };
         else base = { other: q, unit };
       }
       const k = key + '|' + (base ? (base.g != null ? 'g' : base.ml != null ? 'ml' : 'o:' + base.unit) : 'x');
@@ -504,7 +614,7 @@ function buildList(){
     let amt = '';
     if (m.g) amt = fmtGrams(roundGrams(m.g, true));
     else if (m.ml) amt = m.ml >= 1000 ? (Math.round(m.ml/10)/100) + ' l' : Math.round(m.ml) + ' ml';
-    else if (m.other) amt = fmtQty(Math.round(m.other*4)/4) + (m.unit ? ' ' + m.unit + (m.unit === 'cup' && m.other > 1 ? 's' : '') : '');
+    else if (m.other) amt = m.fruit ? fmtQty(Math.ceil(m.other*2)/2) : fmtQty(Math.round(m.other*4)/4) + (m.unit ? ' ' + m.unit + (m.unit === 'cup' && m.other > 1 ? 's' : '') : '');
     else amt = m.text.filter(Boolean).join(' + ');
     return { id: m.key, name: m.name.replace(/^./, c => c.toUpperCase()), amt, aisle: aisleFor(m.name), from: m.from, done: !!(S.shopping.done||{})[m.key] };
   });
@@ -528,10 +638,11 @@ function renderShopping(v){
     return;
   }
   v.innerHTML = '<div class="hd"><h1>Shopping</h1>' + (Object.keys(sel).length ? '<button class="pill ghost" id="none">Clear</button>' : '') + '</div><div class="p"><div class="lbl">Choose recipes — tap the amount to scale</div>'
-    + (recipes.length ? recipes.map(r => { const c = sel[r.id]; return '<div class="pick"><button class="cb' + (c ? ' on' : '') + '" data-sel="' + r.id + '">' + (c ? '✓' : '') + '</button><div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><small>' + (c ? (c.yair ? 'Yair mode' : 'Original') + (r.servings ? ' · serves ' + Math.round(r.servings*c.mult*10)/10 : '') : (r.servings ? 'serves ' + r.servings : '')) + '</small></div>' + (c ? '<div class="mult"><button data-m="' + r.id + '" data-d="-1">−</button><span>' + c.mult + '×</span><button data-m="' + r.id + '" data-d="1">+</button></div>' : '') + '</div>'; }).join('') : '<div class="empty">No recipes with ingredients yet.</div>')
+    + (recipes.length ? recipes.map(r => { const c = sel[r.id]; return '<div class="pick"><button class="cb' + (c ? ' on' : '') + '" data-sel="' + r.id + '">' + (c ? '✓' : '') + '</button><div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><small>' + (c ? (c.yair ? 'Yair mode' : 'Original') + (r.servings ? ' · serves ' + Math.round(r.servings*c.mult*10)/10 : '') : (r.servings ? 'serves ' + r.servings : '')) + '</small></div>' + (c ? '<div class="mult"><button data-m="' + r.id + '" data-d="-1">−</button><button data-mi="' + r.id + '" style="font-size:12px;font-weight:700;min-width:34px;padding:4px 2px;border-radius:8px;border:1px solid var(--line)">' + c.mult + '×</button><button data-m="' + r.id + '" data-d="1">+</button></div>' : '') + '</div>'; }).join('') : '<div class="empty">No recipes with ingredients yet.</div>')
     + '</div><div class="foot"><button class="primary" id="build"' + (Object.keys(sel).length ? '' : ' disabled style="opacity:.5"') + '>Build list' + (Object.keys(sel).length ? ' · ' + Object.keys(sel).length : '') + '</button></div>';
   v.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { const id = b.dataset.sel; if (sel[id]) delete sel[id]; else sel[id] = { mult:1, yair: S.settings.openInYair }; saveShopping(); render(); });
-  v.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { const c = sel[b.dataset.m]; const r = S.recipes.find(x => x.id === b.dataset.m); const step = r.servings ? Math.round(1/r.servings*100)/100 : 0.5; c.mult = Math.max(step, Math.round((c.mult + Number(b.dataset.d)*step)*100)/100); saveShopping(); render(); });
+  v.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { const c = sel[b.dataset.m]; c.mult = Math.max(0.5, Math.round((c.mult + Number(b.dataset.d)*0.5)*100)/100); saveShopping(); render(); });
+  v.querySelectorAll('[data-mi]').forEach(b => b.onclick = () => { const c = sel[b.dataset.mi]; const val = prompt('Multiply this recipe by', c.mult); const n = parseQty(val); if (n && n > 0) { c.mult = Math.round(n*100)/100; saveShopping(); render(); } });
   const none = v.querySelector('#none'); if (none) none.onclick = () => { S.shopping.sel = {}; S.shopping.done = {}; saveShopping(); render(); };
   v.querySelector('#build').onclick = () => { if (!Object.keys(sel).length) return; S.shopping.stage = 'list'; saveShopping(); render(); };
 }
@@ -596,27 +707,33 @@ async function loadSamples(){
   const now = Date.now();
   const mk = (o, i) => newRecipe(Object.assign({ created: now - i*60000, updated: now - i*60000 }, o));
   const list = [
-    mk({ title:'Big bubble no-knead focaccia', cats:['Bread'], tags:['Savoury','To try'], source:'https://www.emmafontanella.com/no-knead-focaccia', sourceName:'Emma Fontanella', servings:8, time:'18 h incl. proof', oven:'230 °C fan', tin:'33 × 23 cm tray',
-      ings:[{qty:4,unit:'cup',name:'bread flour'},{qty:2,unit:'tsp',name:'fine salt'},{qty:0.5,unit:'tsp',name:'instant yeast'},{qty:2,unit:'cup',name:'water, room temperature'},{qty:4,unit:'tbsp',name:'olive oil, for the tray and top'},{qty:1,unit:'tsp',name:'flaky salt'},{qty:null,unit:'',name:'rosemary, cherry tomatoes or olives'}],
-      steps:['Mix flour, salt and yeast in a large bowl. Add the water and stir until no dry flour remains. Cover and leave at room temperature for 12 to 18 hours until bubbly and tripled.','Oil the tray generously. Tip the dough in, fold it over itself twice, turn seam side down and let it relax for 30 minutes.','Stretch the dough to the corners, cover and proof for 2 hours until puffy and full of bubbles.','Heat the oven to 450 °F. Oil your fingers and dimple the dough all over, then add flaky salt and toppings.','Bake for 25 minutes until deep golden. Cool on a rack for 10 minutes before cutting.'], notes:'' }, 0),
-    mk({ title:'Vegan burnt Basque cheesecake', cats:['Desserts','Bakes'], tags:['Sweet'], source:'https://addictedtodates.com/vegan-basque-cheesecake/', sourceName:'Addicted to Dates', servings:10, time:'1 h 10 plus chilling', oven:'220 °C fan', tin:'20 cm round', rating:9,
-      ings:[{qty:600,unit:'g',name:'silken tofu'},{qty:450,unit:'g',name:'vegan cream cheese'},{qty:1,unit:'cup',name:'caster sugar'},{qty:45,unit:'g',name:'cornflour'},{qty:1,unit:'cup',name:'oat cream'},{qty:1,unit:'tbsp',name:'vanilla extract'},{qty:0.5,unit:'tsp',name:'fine salt'},{qty:1,unit:'tbsp',name:'lemon juice'}],
-      steps:['Heat the oven to 220 °C fan. Line a 20 cm tin with two overlapping sheets of parchment that come well above the rim.','Blend tofu, cream cheese and sugar until completely smooth, scraping down twice.','Add cornflour, cream, vanilla, salt and lemon juice. Blend again and pour into the tin.','Bake for 50 minutes until the top is deeply browned and the centre still wobbles.','Cool in the tin, then chill for at least 4 hours before slicing.'], notes:'Bake 5 min longer than stated for a darker top. Halved the sugar the second time — better.' }, 1),
-    mk({ title:"Xi'an biang biang noodles", cats:['Mains'], tags:['Asian','Savoury','Spicy'], source:'https://redhousespice.com/biang-biang-noodles/', sourceName:'Red House Spice', servings:2, time:'45 min', rating:8,
-      ings:[{qty:2,unit:'tbsp',name:'neutral oil'},{qty:0.25,unit:'tsp',name:'MSG'},{qty:0.25,unit:'tsp',name:'chilli flakes'},{qty:2,unit:'clove',name:'garlic, finely grated'},{qty:1,unit:'tbsp',name:'minced ginger'},{qty:0.5,unit:'tsp',name:'ground Sichuan pepper'},{qty:2,unit:'tbsp',name:'spring onion, green parts, finely chopped'},{qty:1,unit:'tbsp',name:'soy sauce'},{qty:1,unit:'tbsp',name:'Chinese black vinegar'},{qty:1,unit:'',name:'head broccoli'},{qty:300,unit:'g',name:'Taiwanese wide noodles'},{qty:1,unit:'tbsp',name:'sesame seeds'}],
-      steps:['Put garlic, ginger, chilli flakes, Sichuan pepper, spring onion and MSG in a heatproof bowl.','Cook the noodles and broccoli together according to the packet, about 4 minutes.','Heat the oil until smoking and pour it over the aromatics. Add soy sauce and vinegar.','Drain the noodles, toss with the sauce and top with sesame seeds.'], notes:'My version of the sauce — from the Keep note.' }, 2),
+    mk({ title:'Vegan burnt Basque cheesecake', cats:['Desserts','Bakes'], tags:['Sweet'], source:'https://addictedtodates.com/vegan-basque-cheesecake/', sourceName:'Addicted to Dates', servings:12, time:'9 h incl. chilling', oven:'200 °C fan', tin:'19–20 cm springform', rating:9,
+      photo:'https://addictedtodates.com/wp-content/uploads/2025/01/vegan-burnt-basque-cheesecake.jpg', photoSrc:'https://addictedtodates.com/wp-content/uploads/2025/01/vegan-burnt-basque-cheesecake.jpg',
+      sourceImages:['https://addictedtodates.com/wp-content/uploads/2025/01/vegan-burnt-basque-cheesecake.jpg','https://addictedtodates.com/wp-content/uploads/2025/01/basque-vegan-cheesecake.jpg','https://addictedtodates.com/wp-content/uploads/2025/01/san-sebastian-basque-cheesecake-vegan.png','https://addictedtodates.com/wp-content/uploads/2025/01/vegan-basque-cheesecake-ingredients.jpg'],
+      ings:[{qty:400,unit:'g',name:'soft silken tofu',alt:{qty:14,unit:'oz'}},{qty:400,unit:'g',name:'vegan Greek-style yogurt',alt:{qty:1.667,unit:'cup'}},{qty:400,unit:'ml',name:'coconut whipping cream',alt:{qty:1,unit:'can'}},{qty:220,unit:'g',name:'cane sugar',alt:{qty:1,unit:'cup'}},{qty:60,unit:'g',name:'cornstarch',alt:{qty:6,unit:'tbsp'}},{qty:2,unit:'tbsp',name:'lemon juice, freshly squeezed'},{qty:2,unit:'tsp',name:'vanilla extract'},{qty:4,unit:'tsp',name:'nutritional yeast'},{qty:0.5,unit:'tsp',name:'sea salt'}],
+      steps:['Preheat oven: place an aluminium baking sheet or tray in the middle of the oven and preheat to fan 200 °C or conventional 220 °C for at least 45–60 minutes to help even browning.','Double line the pan: scrunch up 2 large sheets of parchment and line a 7.5 or 8 inch springform, making sure the paper stands a few inches above the sides as the batter fills to the top.','Blend: add all the ingredients to a large food processor or high-speed blender and blitz until smooth and creamy.','Bake: pour the filling into the pan and place it on the preheated tray. Bake for 50–55 minutes, until the top is evenly browned and the centre still has a slight jiggle.','Cool and set: remove the tray from the oven and rest on a cooling rack for an hour. Then chill in the fridge for 8 hours (overnight works well).','Serving: carefully remove the springform, transfer to a plate and peel away the parchment. Cut with a sharp clean knife and lift each slice with a cake slice.'],
+      sourceNotes:'1. Greek-style yogurt: Alpro Greek-style plain (soy) is used, sometimes labelled Skyr or protein yogurt. If you can\'t find vegan Greek yogurt, increase the silken tofu to 600 g and add 200 g thick coconut or unsweetened soy yogurt.\n2. Coconut cream: Nature\'s Charm coconut whipping cream.\n3. Cane sugar: Morena or Turbinado, or swap for granulated or light brown caster sugar.\n4. Cornstarch: arrowroot works 1:1.\n5. Vanilla: 1 tsp vanilla bean paste or a scraped pod instead.',
+      nutrition:{ calories:221, carbs:26, protein:5, fat:9, saturates:6, fibre:1, sugars:20, per:'1 slice' }, notes:'' }, 0),
+    mk({ title:'Eggless pistachio cookies', cats:['Bakes'], tags:['Sweet'], source:'https://www.lazycatkitchen.com/eggless-pistachio-cookies/', sourceName:'Lazy Cat Kitchen', servings:12, time:'15 min + 12 min bake, plus chilling', oven:'180 °C',
+      photo:'https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/eggless-pistachio-cookies.jpg', photoSrc:'https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/eggless-pistachio-cookies.jpg',
+      sourceImages:['https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/eggless-pistachio-cookies.jpg','https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/eggless-pistachio-cookies-tray-800x1200.jpg','https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/pistachio-cookies-ingredients-800x1200.jpg','https://cdn77-s3.lazycatkitchen.com/wp-content/uploads/2026/05/eggless-pistachio-cookies-raw-800x1200.jpg'],
+      ings:[{qty:8,unit:'g',name:'ground flax',alt:{qty:4,unit:'tsp'}},{qty:60,unit:'ml',name:'soy milk (or other plant milk)',alt:{qty:0.25,unit:'cup'}},{qty:120,unit:'g',name:'vegan butter block',alt:{qty:4.2,unit:'oz'}},{qty:100,unit:'g',name:'dark muscovado sugar',alt:{qty:0.5,unit:'cup'}},{qty:100,unit:'g',name:'caster sugar',alt:{qty:0.5,unit:'cup'}},{qty:80,unit:'g',name:'pistachio butter, more to garnish',alt:{qty:0.333,unit:'cup'}},{qty:10,unit:'ml',name:'vanilla extract',alt:{qty:2,unit:'tsp'}},{qty:190,unit:'g',name:'plain flour (or a GF flour mix)',alt:{qty:1.5,unit:'cup'}},{qty:0.5,unit:'tsp',name:'fine salt'},{qty:0.5,unit:'tsp',name:'baking powder'},{qty:0.25,unit:'tsp',name:'baking soda'},{qty:60,unit:'g',name:'coarsely chopped pistachios',alt:{qty:2,unit:'oz'}},{qty:100,unit:'g',name:'vegan chocolate',alt:{qty:3.5,unit:'oz'}}],
+      steps:['Combine ground flax with soy milk in a large mixing bowl and let it stand until thickened, about 20 minutes.','Gently melt the vegan butter, then let it cool completely.','Once the flax has activated and the butter is cool, add both sugars to the flax mixture.','Using an electric whisk, whip the flax and sugars for about 3 minutes, until thickened and bubbly.','Pour in the cooled butter, pistachio butter and vanilla. Stir gently to combine.','Combine flour, salt and both raising agents in a separate bowl and fold into the wet mixture in three batches.','Fold in three quarters of the chopped pistachios and chocolate chunks; keep the rest for decoration.','Shape into balls with an ice-cream scoop (a ¼ cup scoop makes 10). Top with a chunk of chocolate and pistachios.','Chill the shaped cookies overnight in the fridge, or freeze for 1 hour.','Just before baking, make a small hole in each cookie and fill it with pistachio butter.','Preheat the oven to 180 °C. Bake for about 6 minutes, bang the tray on the counter a few times, rotate, and bake another 5–7 minutes depending on size.','Out of the oven, bang the tray again or nudge the edges in with a cookie ring if they spread too much.','Let the cookies set for 10 minutes, then cool completely on a rack.','Store airtight for at least a week, or freeze before or after baking.'],
+      sourceNotes:'A dark baking tray bakes the cookies faster.\nPistachio butter: toast 250 g shelled pistachios at 180 °C for 8–10 minutes, cool fully, then process to a butter; add a teaspoon of neutral oil if it looks dry.',
+      nutrition:{ calories:306, sugars:21, fat:16, saturates:8, protein:4, carbs:37, per:'1 of 12 cookies' }, notes:'' }, 1),
+    mk({ title:"Xi'an biang biang noodles — my version", cats:['Mains'], tags:['Asian','Savoury'], source:'https://redhousespice.com/biang-biang-noodles/', sourceName:'Red House Spice', servings:2, time:'45 min', rating:8, baking:false,
+      ings:[{qty:2,unit:'tbsp',name:'oil'},{qty:0.25,unit:'tsp',name:'MSG'},{qty:0.25,unit:'tsp',name:'chilli flakes'},{qty:2,unit:'clove',name:'large garlic, finely grated'},{qty:1,unit:'tbsp',name:'minced ginger'},{qty:0.5,unit:'tsp',name:'ground Sichuan pepper'},{qty:2,unit:'tbsp',name:'finely chopped green onion, green parts only'},{qty:1,unit:'tbsp',name:'soy sauce'},{qty:1,unit:'tbsp',name:'Chinese black vinegar'},{qty:null,unit:'',name:'broccoli'},{qty:null,unit:'',name:'Taiwanese noodles'},{qty:null,unit:'',name:'sesame seeds'}],
+      steps:[], notes:'Sauce quantities are my own version from the Keep note; the method is on the source page.' }, 2),
     mk({ title:'Mango banana ice cream', cats:['Desserts'], tags:['Sweet','Quick','No-bake'], sourceName:'Your recipe', servings:4, time:'10 min', rating:7, baking:false,
-      ings:[{qty:0.5,unit:'',name:'pack frozen mango'},{qty:3,unit:'',name:'frozen bananas'},{qty:1,unit:'',name:'date'},{qty:2,unit:'tbsp',name:'chia seeds'},{qty:1,unit:'pinch',name:'salt'},{qty:null,unit:'',name:'almond milk, a splash'}],
-      steps:['Blend everything with a tamper, adding just enough almond milk to get it moving.','Serve straight away, or freeze for 30 minutes for a firmer scoop.'], notes:'' }, 3),
+      ings:[{qty:0.5,unit:'',name:'pack frozen mangoes'},{qty:3,unit:'',name:'frozen bananas (3–4)'},{qty:1,unit:'',name:'date'},{qty:2,unit:'tbsp',name:'chia seeds'},{qty:1,unit:'pinch',name:'salt'},{qty:null,unit:'',name:'almond milk'}],
+      steps:['Blend everything with a tamper, adding just enough almond milk to get it moving.'], notes:'' }, 3),
     mk({ title:'Pumpkin seed butter', cats:['Sauces'], tags:['Savoury'], sourceName:'Your recipe', servings:null, time:'20 min', baking:false,
-      ings:[{qty:4,unit:'cup',name:'pumpkin seeds'},{qty:1,unit:'tsp',name:'olive oil'},{qty:0.5,unit:'tsp',name:'coarse salt'},{qty:1,unit:'tsp',name:'maple syrup'}],
-      steps:['Toast the seeds at 155 °C fan for 10 to 12 minutes, stirring halfway.','Blend the seeds with the tamper for about 3 minutes, stopping every minute to scrape down.','Add the oil, salt and maple syrup and blend until glossy.'], notes:'' }, 4),
-    mk({ title:'Marry me tofu', cats:['Mains'], tags:['Weeknight','Savoury','Italian'], source:'https://schoolnightvegan.com/home/marry-me-tofu/', sourceName:'School Night Vegan', servings:4, time:'35 min',
-      ings:[{qty:600,unit:'g',name:'firm tofu'},{qty:2,unit:'tbsp',name:'cornflour'},{qty:3,unit:'tbsp',name:'olive oil'},{qty:4,unit:'clove',name:'garlic, sliced'},{qty:120,unit:'g',name:'sun-dried tomatoes in oil, chopped'},{qty:1,unit:'tbsp',name:'tomato purée'},{qty:1,unit:'tsp',name:'chilli flakes'},{qty:400,unit:'ml',name:'oat cream'},{qty:1,unit:'',name:'bunch fresh basil'},{qty:null,unit:'',name:'salt and pepper'}],
-      steps:['Press the tofu, tear into chunks and toss with cornflour and a pinch of salt.','Fry in the oil over high heat for 8 minutes, turning, until golden. Set aside.','Soften the garlic in the same pan for 1 minute, add the sun-dried tomatoes, purée and chilli, then pour in the cream.','Simmer for 5 minutes, return the tofu, season and finish with torn basil.'], notes:'' }, 5)
+      ings:[{qty:4,unit:'cup',name:'toasted pumpkin seeds'},{qty:1,unit:'tsp',name:'olive oil'},{qty:0.5,unit:'tsp',name:'coarse salt'},{qty:1,unit:'tsp',name:'maple syrup'}],
+      steps:['Toast the seeds for 10–12 minutes at 155 °C fan, stirring halfway.','Blend the seeds with the tamper for about 3 minutes, stopping every minute to scrape.','Add the rest and blend until smooth.'], notes:'' }, 4)
   ];
   for (const r of list) await saveRecipe(r);
   S.settings.sampleLoaded = true; await saveSettings();
+  list.forEach(r => cachePhoto(r));
 }
 
 /* ---------- boot ---------- */
