@@ -68,7 +68,7 @@ const store = {
 /* ---------- state ---------- */
 const S = {
   recipes: [], settings: null, shopping: null, timers: [], route: { name:'library' }, hist: [],
-  lib: { tab:'All', q:'', sel:null }
+  lib: { tab:'All', q:'', sel:null, icon:null }
 };
 const DEFAULT_SETTINGS = { sort:'az', wheel:'recent', openInYair:true, tempC:true, bakingGrams:true, savouryAsWritten:true, rounding:true, backupEvery:'weekly', lastBackup:null, sampleLoaded:false };
 const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36);
@@ -272,6 +272,7 @@ function renderLibrary(v){
   const q = S.lib.q.trim().toLowerCase();
   let list = S.recipes.filter(r => !r.deleted);
   if (S.lib.tab !== 'All') list = list.filter(r => (r.cats||[]).includes(S.lib.tab) || (r.tags||[]).includes(S.lib.tab));
+  if (S.lib.icon) list = list.filter(r => r.icon === S.lib.icon);
   if (q) list = list.filter(r => [r.title, (r.ings||[]).map(i => i.name).join(' '), (r.cats||[]).join(' '), (r.tags||[]).join(' '), r.notes, sourceLabel(r)].join(' ').toLowerCase().includes(q));
   list = sortRecipes(list);
   let wheel = S.recipes.filter(r => !r.deleted);
@@ -285,6 +286,7 @@ function renderLibrary(v){
     + (S.lib.showSearch || q ? '<div class="search"><input id="q" placeholder="Search recipes, ingredients, tags" value="' + esc(S.lib.q) + '"><button class="rbtn" style="border:0" id="qx">✕</button></div>' : '')
     + (!q && wheel.length ? '<div class="car" id="car">' + wheel.map(r => '<button class="slide' + (r.photo ? '' : ' noimg') + '" style="' + tileStyle(r.icon) + '" data-id="' + r.id + '">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.parentNode.classList.add(\'noimg\');this.style.display=\'none\'">' : '<div class="tile big" style="--tb:' + ICONS[r.icon].ti + ';--ti:' + ICONS[r.icon].tb + '">' + svgIcon(r.icon) + '</div>') + '<div class="cap"><h3>' + esc(r.title) + '</h3></div></button>').join('') + '</div>' : '')
     + '<div class="tabs">' + tabs.map(t => '<button class="' + (S.lib.tab === t ? 'on' : '') + '" data-tab="' + t + '">' + t + '</button>').join('') + '</div>'
+    + (S.lib.icon ? '<div class="ifilter"><div class="tile" style="' + tileStyle(S.lib.icon) + '">' + svgIcon(S.lib.icon) + '</div><span>' + S.lib.icon.replace('icecream', 'ice cream') + ' recipes</span><button id="ifx">✕</button></div>' : '')
     + (list.length ? list.map(r => '<div class="rw"><div class="acts"><button class="act" data-edit="' + r.id + '">Edit</button><button class="act del" data-del="' + r.id + '">Delete</button></div><button class="row" data-id="' + r.id + '">' + (sel ? '<div class="cb' + (sel.includes(r.id) ? ' on' : '') + '">' + (sel.includes(r.id) ? '✓' : '') + '</div>' : '') + '<div class="tile" style="' + tileStyle(r.icon) + '">' + svgIcon(r.icon) + '</div><div><h3>' + esc(r.title) + '</h3><p>' + esc([sourceLabel(r), r.time, r.servings ? 'serves ' + r.servings : ''].filter(Boolean).join(' · ')) + '</p></div>' + (r.rating ? '<div class="sc">' + r.rating + '</div>' : '') + '</button></div>').join('')
        : '<div class="empty"><b>' + (S.recipes.length ? 'Nothing here' : 'No recipes yet') + '</b>' + (S.recipes.length ? 'Try another tab or search.' : 'Tap Add to bring one in, or load the sample set from Settings.') + '</div>');
   const bs = v.querySelector('#btnSel'); if (bs) bs.onclick = () => { S.lib.sel = []; render(); };
@@ -296,6 +298,7 @@ function renderLibrary(v){
   const bsx = v.querySelector('#btnSearch'); if (bsx) bsx.onclick = () => { S.lib.showSearch = !S.lib.showSearch; if (!S.lib.showSearch) S.lib.q = ''; render(); if (S.lib.showSearch) { const i = $('#q'); i && i.focus(); } };
   const qi = v.querySelector('#q'); if (qi) { qi.oninput = () => { S.lib.q = qi.value; const pos = qi.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); }; v.querySelector('#qx').onclick = () => { S.lib.q = ''; S.lib.showSearch = false; render(); }; }
   v.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.lib.tab = b.dataset.tab; render(); });
+  const ifx = v.querySelector('#ifx'); if (ifx) ifx.onclick = () => { S.lib.icon = null; render(); };
   v.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { if (b.classList.contains('row') && b.parentNode.classList.contains('open')) { b.parentNode.classList.remove('open'); b.style.transform = ''; return; } if (sel) { const i = sel.indexOf(b.dataset.id); if (i >= 0) sel.splice(i, 1); else sel.push(b.dataset.id); render(); return; } go('recipe', { id: b.dataset.id }); });
   const car = v.querySelector('#car'); if (car) initWheel(car);
 }
@@ -334,13 +337,13 @@ function renderRecipe(v, id){
     + '<svg class="wrap" viewBox="0 0 ' + W + ' 250" width="' + W + '" height="250" aria-hidden="true"><path fill="var(--tb)" d="' + wrapPath + '"/></svg>'
     + '<button class="rbtn b1" id="bk">‹</button><button class="rbtn b2" id="fav">' + ((r.tags||[]).includes('Favourite') ? '♥' : '♡') + '</button><button class="edit" id="ed">Edit</button>'
     + '<div class="photo">' + (r.photo ? '<img src="' + r.photo + '" alt="" style="' + photoStyle(r) + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'"><div class="ph" style="display:none">' + svgIcon(r.icon) + '</div>' : '<div class="ph">' + svgIcon(r.icon) + '</div>') + '</div>'
-    + '<div class="tile badge">' + svgIcon(r.icon) + '</div></div>'
+    + '<button class="tile badge" id="iconGo" aria-label="All ' + r.icon + ' recipes">' + svgIcon(r.icon) + '</button></div>'
     + '<div class="r"><h1>' + esc(r.title) + '</h1>'
     + '<div class="meta">' + [r.time, r.servings ? 'serves ' + r.servings : '', r.rating ? '<b>' + r.rating + '</b> / 10' : '', catLabel(r).toLowerCase(), (r.tags||[]).filter(t => t !== 'Favourite').join(', ').toLowerCase()].filter(Boolean).join(' · ') + '</div>'
     + (r.source ? '<a class="src" href="' + esc(r.source) + '" target="_blank" rel="noopener">' + esc(sourceLabel(r) || 'Source') + ' ↗</a>' : (r.sourceName ? '<div class="src" style="text-decoration:none">' + esc(r.sourceName) + '</div>' : ''))
     + '<div class="seg"><button class="' + (view.yair ? '' : 'on') + '" data-mode="orig">Original</button><button class="' + (view.yair ? 'on' : '') + '" data-mode="yair">Yair mode</button></div>'
     + '<div class="seg" style="margin-top:8px"><button class="' + (view.tab === 'ing' ? 'on' : '') + '" data-tab="ing">Ingredients</button><button class="' + (view.tab === 'steps' ? 'on' : '') + '" data-tab="steps">Method</button><button class="' + (view.tab === 'notes' ? 'on' : '') + '" data-tab="notes">Notes</button></div>'
-    + (view.tab === 'ing' ? '<div class="serv"><span>' + (r.servings ? 'Portions' : 'Batch') + (view.yair && isBakingRecipe(r) ? ' · grams' : '') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" style="font-weight:700;padding:2px 6px">' + fmtQty(serv) + (Math.abs(view.factor - 1) > 0.001 ? ' <small style="color:var(--mute);font-weight:600">(' + (Math.round(view.factor*100)/100) + '×)</small>' : '') + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" style="font-weight:700;padding:2px 6px">' + fmtQty(view.factor) + '×</button><button id="sp">+</button>') + '</span></div>'
+    + (view.tab === 'ing' ? '<div class="serv"><span>' + (r.servings ? 'Portions' : 'Batch') + (Math.abs(view.factor - 1) > 0.001 ? ' · ' + (Math.round(view.factor*100)/100) + '× the recipe' : '') + '</span><span class="st">' + (r.servings ? '<button id="sm">−</button><button id="stv" class="stv">' + fmtQty(serv) + '</button><button id="sp">+</button>' : '<button id="sm">−</button><button id="stv" class="stv">' + fmtQty(view.factor) + '×</button><button id="sp">+</button>') + '</span></div>'
         + '<div class="ing">' + ings.map(i => i.group ? '<div class="grp" style="border:0;padding:12px 0 2px">' + esc(i.text) + '</div>' : '<div><span>' + esc(i.text) + (i.note ? '<small>' + i.note + '</small>' : '') + '</span><b>' + esc(i.amt) + '</b></div>').join('') + (ings.length ? '' : '<div class="empty">No ingredients yet — tap Edit.</div>') + '</div>' + nutritionBlock(r, view.factor) : '')
     + (view.tab === 'steps' ? '<div style="margin-top:8px">' + (r.steps||[]).map((s, i) => { const d = view.done[i]; const dur = (r.stepTimers && r.stepTimers[i] != null) ? r.stepTimers[i] : detectDuration(s); const run = S.timers.find(t => t.recipeId === r.id && t.step === i); return '<div class="step' + (d ? ' done' : '') + '"><i data-done="' + i + '">' + (d ? '✓' : i+1) + '</i><div class="txt">' + esc(convertTempsInText(s, view.yair && S.settings.tempC)) + (run ? '<br><button class="chip run" data-stop="' + run.id + '">▮▮ <b>' + fmtDur((run.end - Date.now())/1000) + '</b> · stop</button>' : dur ? '<br><button class="chip" data-timer="' + i + '" data-secs="' + dur + '">▷ ' + fmtDurShort(dur) + '</button>' : '') + '</div></div>'; }).join('') + ((r.steps||[]).length ? '' : '<div class="empty">No method yet — tap Edit.</div>') + '</div>' : '')
     + (view.tab === 'notes' ? (r.sourceNotes ? '<div class="lbl">From the source</div><div class="notes">' + esc(r.sourceNotes) + '</div>' : '') + '<div class="lbl">My notes</div><div class="notes">' + (r.notes ? esc(r.notes) : '<span style="color:var(--mute)">Nothing yet. Add notes from Edit — what you changed, what to try next time.</span>') + '</div>'
@@ -350,6 +353,7 @@ function renderRecipe(v, id){
         + '<div style="margin-top:22px"><button class="pill danger" id="del">Delete recipe</button></div>' : '')
     + '<div style="height:24px"></div></div>';
   v.querySelector('#bk').onclick = back;
+  v.querySelector('#iconGo').onclick = () => { S.lib.icon = r.icon; S.lib.tab = 'All'; S.lib.q = ''; S.hist = []; go('library', null, true); };
   v.querySelector('#ed').onclick = () => go('edit', { id });
   v.querySelector('#fav').onclick = async () => { r.tags = r.tags || []; const i = r.tags.indexOf('Favourite'); if (i >= 0) r.tags.splice(i, 1); else r.tags.push('Favourite'); await saveRecipe(r); render(); };
   v.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { view.yair = b.dataset.mode === 'yair'; render(); });
@@ -680,6 +684,7 @@ function buildList(){
 function renderShopping(v){
   S.shopping = S.shopping || { sel:{}, done:{}, stage:'pick' };
   const sel = S.shopping.sel;
+  let pruned = false; for (const id of Object.keys(sel)) { const rr = S.recipes.find(x => x.id === id); if (!rr || rr.deleted) { delete sel[id]; pruned = true; } } if (pruned) saveShopping();
   const recipes = sortRecipes(S.recipes.filter(r => !r.deleted && (r.ings||[]).length));
   if (S.shopping.stage === 'list') {
     const items = buildList();
